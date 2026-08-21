@@ -1,0 +1,47 @@
+/* ---------------------------------------------------------------------------
+   Console Leboncoin — tokens OKLCH (DESIGN.md)
+   Graphite teinté prune/bleu, texte clair teinté, accent lichen.
+   Jamais noir pur, jamais blanc pur.
+--------------------------------------------------------------------------- */
+:root {
+  --bg-0: oklch(0.155 0.012 292);
+  --bg-1: oklch(0.185 0.013 290);
+  --bg-2: oklch(0.225 0.015 288);
+  --bg-inset: oklch(0.13 0.01 292);
+  --line: oklch(0.3 0.015 288);
+  --line-strong: oklch(0.38 0.018 286);
+
+  --text-1: oklch(0.93 0.008 95);
+  --text-2: oklch(0.78 0.012 95);
+  --text-3: oklch(0.62 0.012 95);
+
+  --accent: oklch(0.79 0.13 140);
+  --accent-dim: oklch(0.35 0.06 140);
+  --accent-text: oklch(0.9 0.06 140);
+
+  --amber: oklch(0.8 0.13 80);
+  --amber-dim: oklch(0.38 0.07 80);
+  --coral: oklch(0.7 0.17 25);
+  --coral-dim: oklch(0.36 0.09 25);
+  --info: oklch(0.75 0.1 250);
+  --info-dim: oklch(0.34 0.06 250);
+
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+
+  --row-h: 38px;
+  --row-h-compact: 34px;
+  --rail-w: 48px;
+  --status-h: 28px;
+  --detail-w: 420px;
+
+  --ease: cubic-bezier(0.25, 1, 0.5, 1); /* ease-out-quart */
+  --t-fast: 140ms;
+  --t-base: 160ms;
+
+  --radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 1ms; --t-base: 1ms; }
+}

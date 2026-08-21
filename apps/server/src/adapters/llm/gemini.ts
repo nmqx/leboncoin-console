@@ -1,0 +1,227 @@
+import { requestJson, type RequestOptions } from "../../security/http.js";
+
+// ---------------------------------------------------------------------------
+// Client Anthropic-compatible (gateway OpenCode, modèle gemini-3.7-flash-high)
+//   POST {LLM_BASE_URL}/v1/messages
+//   x-api-key + anthropic-version: 2023-06-01
+// ATTENTION : transport HTTP public accepté par l'opérateur — bandeau permanent
+// dans l'interface. Jamais de secret dans le prompt.
+// ---------------------------------------------------------------------------
+
+export interface LlmConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  maxTokens?: number;
+  temperature?: number;
+  timeoutMs?: number;
+}
+
+export interface LlmTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface AnthropicResponse {
+  content?: Array<{ type: string; text?: string }>;
+  error?: { type?: string; message?: string };
+}
+
+export class LlmError extends Error {
+  constructor(message: string, readonly retryable: boolean) {
+    super(message);
+    this.name = "LlmError";
+  }
+}
+
+export function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
+}
+
+export class LlmClient {
+  private readonly cfg: LlmConfig;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(cfg: LlmConfig, fetchImpl: typeof fetch = fetch) {
+    this.cfg = { maxTokens: 512, temperature: 0.3, timeoutMs: 15_000, ...cfg };
+    this.fetchImpl = fetchImpl;
+  }
+
+  async complete(system: string, turns: LlmTurn[]): Promise<string> {
+    const opts: RequestOptions = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": this.cfg.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: this.cfg.model,
+        max_tokens: this.cfg.maxTokens,
+        temperature: this.cfg.temperature,
+        system,
+        messages: turns.map((t) => ({ role: t.role, content: t.content })),
+      }),
+      timeoutMs: this.cfg.timeoutMs,
+    };
+    const res = await requestJson<AnthropicResponse>(
+      `${normalizeBaseUrl(this.cfg.baseUrl)}/v1/messages`,
+      opts,
+      this.fetchImpl
+    );
+    if (res.status === 429 || res.status >= 500) {
+      throw new LlmError(`LLM HTTP ${res.status}`, true);
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new LlmError(`LLM HTTP ${res.status}: ${res.json?.error?.message ?? res.text.slice(0, 200)}`, false);
+    }
+    const text = (res.json?.content ?? [])
+      .filter((c) => c.type === "text" && typeof c.text === "string")
+      .map((c) => c.text!)
+      .join("\n")
+      .trim();
+    if (!text) throw new LlmError("Réponse LLM vide", true);
+    return text;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Validation de la réponse : JSON strict, bornes, zéro secret
+// ---------------------------------------------------------------------------
+
+export interface ReplyDraft {
+  reply: string;
+  classification: "question" | "offre" | "rendez-vous" | "spam" | "autre" | null;
+  confidence: number;
+}
+
+export class ReplyValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReplyValidationError";
+  }
+}
+
+export function validateReply(
+  raw: string,
+  opts: { maxLen?: number; forbiddenSubstrings?: string[] } = {}
+): ReplyDraft {
+  const maxLen = opts.maxLen ?? 500;
+  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch {
+    throw new ReplyValidationError("La réponse LLM n'est pas du JSON valide");
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new ReplyValidationError("La réponse LLM n'est pas un objet");
+  }
+  const obj = parsed as Record<string, unknown>;
+  const reply = obj["reply"];
+  if (typeof reply !== "string" || reply.trim().length === 0) {
+    throw new ReplyValidationError("Champ 'reply' absent ou vide");
+  }
+  if (reply.length > maxLen) {
+    throw new ReplyValidationError(`Réponse trop longue (${reply.length} > ${maxLen})`);
+  }
+  for (const secret of opts.forbiddenSubstrings ?? []) {
+    if (secret && (reply.includes(secret) || stripped.includes(secret))) {
+      throw new ReplyValidationError("La réponse contient un élément secret — rejet");
+    }
+  }
+  const classificationRaw = obj["classification"];
+  const allowed = ["question", "offre", "rendez-vous", "spam", "autre"] as const;
+  const classification =
+    typeof classificationRaw === "string" && (allowed as readonly string[]).includes(classificationRaw)
+      ? (classificationRaw as ReplyDraft["classification"])
+      : null;
+  const confidenceRaw = obj["confidence"];
+  const confidence =
+    typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
+      ? Math.max(0, Math.min(1, confidenceRaw))
+      : 0.5;
+  return { reply: reply.trim(), classification, confidence };
+}
+
+export const REPLY_SYSTEM_PROMPT = `Tu es l'assistant de vente d'un particulier sur Leboncoin.
+Tu réponds aux messages reçus à propos de l'annonce fournie. Règles strictes :
+- Réponds en français, courtois, concret, 1 à 4 phrases maximum.
+- Reste strictement sur le sujet de l'annonce : titre, prix, état, disponibilité, remise en main propre.
+- Ne partage jamais de coordonnées bancaires, d'IBAN, de lien de paiement, ni de données personnelles autres que la ville.
+- N'accepte jamais un paiement à distance ni d'envoi avant rencontre sauf si [ENVOI_AUTORISE] est présent.
+- Si la demande semble frauduleuse (surenchère urgente, mandat, PayPal ami), classe-la "spam" et refuse poliment.
+Réponds UNIQUEMENT en JSON: {"reply": string, "classification": "question"|"offre"|"rendez-vous"|"spam"|"autre", "confidence": number}`;
+
+// ---------------------------------------------------------------------------
+// Filtre sémantique anti-faux positifs — UN appel groupé par run de recherche
+// ---------------------------------------------------------------------------
+
+export interface RelevanceCandidate {
+  id: string;
+  title: string;
+  priceCents?: number;
+}
+
+export const RELEVANCE_SYSTEM_PROMPT = `Tu filtres les résultats d'une recherche Leboncoin.
+On te donne une requête (ce que l'opérateur cherche VRAIMENT) et une liste numérotée d'annonces (titre + prix).
+Règles strictes :
+- Une annonce est PERTINENTE seulement si l'objet principal vendu EST ce que cherche la requête.
+- Pièges typiques : un jeu/accessoire qui mentionne la plateforme dans son titre n'est PAS la plateforme (ex. « Just Dance - Nintendo Switch » n'est pas une console Switch). Un étui n'est pas un téléphone. Une pile de litière n'est pas un animal.
+- Une annonce ambiguë ou hors-sujet est NON pertinente.
+Réponds UNIQUEMENT en JSON: {"keep": [numéros des annonces pertinentes]}`;
+
+/** Parse la réponse du filtre : tolérant (code fences, numéros, chaîne ou tableau). */
+export function parseRelevanceResponse(raw: string, total: number): Set<number> {
+  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch {
+    return allKept(total); // réponse illisible → on garde tout (jamais bloquant)
+  }
+  const keepRaw =
+    parsed && typeof parsed === "object" && Array.isArray((parsed as { keep?: unknown }).keep)
+      ? (parsed as { keep: unknown[] }).keep
+      : Array.isArray(parsed)
+        ? parsed
+        : null;
+  if (!keepRaw) return allKept(total);
+  const keep = new Set<number>();
+  for (const v of keepRaw) {
+    const n = typeof v === "number" ? v : Number(String(v).replace(/[^0-9]/g, ""));
+    if (Number.isInteger(n) && n >= 1 && n <= total) keep.add(n);
+  }
+  return keep.size > 0 ? keep : allKept(total);
+}
+
+function allKept(total: number): Set<number> {
+  return new Set(Array.from({ length: total }, (_, i) => i + 1));
+}
+
+/**
+ * Filtre les annonces par pertinence sémantique. Un seul appel pour tout le
+ * lot. En cas d'échec LLM : tout est conservé (le filtre ne bloque jamais la
+ * recherche), l'appelant est informé via le booléen retourné.
+ */
+export async function filterByRelevance(
+  query: string,
+  candidates: RelevanceCandidate[],
+  complete: (system: string, turns: LlmTurn[]) => Promise<string>
+): Promise<{ keptIds: Set<string>; applied: boolean }> {
+  if (candidates.length === 0) return { keptIds: new Set(), applied: true };
+  const list = candidates
+    .map((c, i) => `${i + 1}. [id=${c.id}] ${c.title} — ${c.priceCents !== undefined ? `${(c.priceCents / 100).toFixed(0)} €` : "prix non précisé"}`)
+    .join("\n");
+  try {
+    const raw = await complete(RELEVANCE_SYSTEM_PROMPT, [
+      { role: "user", content: `Requête : « ${query} »\n\nAnnonces :\n${list}` },
+    ]);
+    const keep = parseRelevanceResponse(raw, candidates.length);
+    const keptIds = new Set(candidates.filter((_, i) => keep.has(i + 1)).map((c) => c.id));
+    return { keptIds: keptIds.size > 0 ? keptIds : new Set(candidates.map((c) => c.id)), applied: true };
+  } catch {
+    return { keptIds: new Set(candidates.map((c) => c.id)), applied: false };
+  }
+}
