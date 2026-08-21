@@ -114,6 +114,28 @@ async function main(): Promise<void> {
   });
   const capture = new CaptureSession(repos, bus, cfg.DATA_DIR);
 
+  // Au boot : si une session existe, garantir les contrats messagerie — les
+  // endpoints vérifiés sont matérialisés en synthétique si aucune capture
+  // réelle ne les couvre (connexion seule = messagerie opérationnelle).
+  void (async () => {
+    try {
+      const profile = await getSessionProfile();
+      const raw = await decryptSecret("lbc_session");
+      if (!profile || !raw) return;
+      const bundle = JSON.parse(raw) as { userId?: string | null; authHeader?: string };
+      let userId = bundle.userId ?? null;
+      if (!userId && bundle.authHeader?.startsWith("Bearer ")) {
+        const payload = JSON.parse(Buffer.from(bundle.authHeader.split(".")[1]!, "base64url").toString("utf8")) as { sub?: string };
+        const sub = payload.sub?.split(";");
+        if (sub && sub.length >= 2) userId = sub[1] ?? null;
+      }
+      if (userId) {
+        const { ensureSyntheticContracts } = await import("./adapters/leboncoin/messaging.js");
+        ensureSyntheticContracts(repos, userId, profile.userAgent);
+      }
+    } catch { /* session absente : rien à garantir */ }
+  })();
+
   // pipeline automatique de messagerie : sync + réponses LLM (automation OFF par défaut)
   const autoResponder = new AutoResponder({
     repos,

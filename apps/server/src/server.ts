@@ -49,7 +49,8 @@ export async function buildServer(opts: BuildOptions): Promise<FastifyInstance> 
   const repos = opts.repos ?? createRepos(db, (cipher) => vault.decrypt(cipher));
   const bus = opts.bus ?? new Bus(repos.events);
 
-  if (opts.runSeed !== false) seed(repos, bus);
+  // Jamais de données d'exemple en mode live — uniquement en fixtures.
+  if (opts.runSeed !== false && cfg.LBC_MODE !== "live") seed(repos, bus);
 
   // pino 9 structurellement compatible, écart de typage mineur (msgPrefix) — cast contrôlé
   const app = Fastify({ loggerInstance: logger as unknown as FastifyBaseLogger, bodyLimit: 2 * 1024 * 1024 });

@@ -196,8 +196,9 @@ export default function SettingsView() {
         <section className="panel" style={{ padding: 14 }}>
           <div className="panel-title" style={{ padding: 0, marginBottom: 10 }}>Connexion Chrome — capture DevTools</div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-            Chrome réel, profil dédié, piloté par vous. On écoute le réseau (CDP) : cookies de session + contrats
-            de requêtes messagerie (inbox, envoi). Aucun Playwright, aucun pilotage de page.
+            Chrome réel, profil dédié, piloté par vous. Connectez-vous, c'est tout : les tokens sont importés
+            automatiquement et les contrats messagerie (inbox, envoi) sont générés — aucun message à envoyer,
+            aucun pilotage de page, aucun Playwright.
           </p>
           <div className="row">
             {chrome.data?.running ? (

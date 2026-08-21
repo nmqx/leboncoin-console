@@ -64,6 +64,9 @@ PC : voir `SETUP.md`.
 | UI messagerie polish (22/08) | bulles de chat vraies (coins 3/10 asymétriques, bordures cadre supprimées, méta alignée à droite sur les sortantes), puits de messages sur fond `--bg-inset`, liste inbox : barre d'accent sur la sélection + point non-lu + prénom en plus clair, composeur hiérarchisé (Brouillon LLM en subtle, Envoyer en primary). Vérifié : styles calculés in/out, scroll thread, capture `data/shots/06-inbox-polish.png`, Playwright 7/7 |
 | LLM gateway opérationnelle (22/08) | clé fournie par l'opérateur → coffre DPAPI ; gateway **OpenAI-compatible** (`/v1/chat/completions`, `Authorization: Bearer`, modèle `gemini-3.7-flash-high`) — le client initial parlait Anthropic `/v1/messages`, corrigé. Base URL dans `apps/server/.env` (`LLM_BASE_URL`, ignoré par git, piège dotenv : chargé depuis `apps/server/`, pas la racine). Diagnostics « pong » 1,5 s ; **filtre sémantique vérifié en live** : requête « nintendo switch » + `llmFilter` → seules des consoles réelles retenues (les jeux/accessoires « Just Dance », « Écran de switch », « Manettes switch » exclus). `Authorization` déjà rédigé dans les logs. Usage limité au filtrage sur demande de l'opérateur |
 | Fix bouton « Tester » LLM (22/08) | le clic UI renvoyait `Body cannot be empty when content-type is set to 'application/json'` — le client envoyait le header JSON sans body et Fastify refuse. **Double fix** : `api.ts` ne pose `Content-Type` qu'avec un body, et `server.ts` tolère un corps JSON vide (content-parser dédié — protège aussi sync/refresh/cancel appelés sans body). Vérifié sur le **vrai bouton** dans l'UI : « OK — gemini-3.7-flash-high · ~2 s · pong » |
+| Config persistée `console.config.json` (22/08) | **racine du bug de déauth** : `npm -w apps/server` lance avec cwd=apps/server, un DATA_DIR relatif créait alors une SECONDE base vierge (déauth + fixtures au premier plan). Désormais : DATA_DIR par défaut **absolu** (résolu depuis config.ts, indépendant du cwd) + `console.config.json` à la racine retient mode live, dataDir, gateway LLM, host/port — un relancement (même 2 jours après, même depuis un autre cwd) retombe sur la même base et le même mode. Priorité : env du lancement > JSON > défauts ; le JSON est réécrit à chaque boot effectif (gitignored, zéro secret) |
+| Placeholders éradiqués (22/08) | le seed (annonces/conversations de démo) ne tourne **plus jamais en mode live** (`server.ts`) ; les 24 annonces fixtures + price_history de la vraie base purgées (source='fixtures') — la recherche et la messagerie n'affichent plus que du réel. Les 3 veilles existantes sont celles de l'opérateur (gardées) |
+| Connexion = tokens seuls (22/08) | **plus besoin d'envoyer un message à la capture** : `ensureSyntheticContracts()` matérialise inbox v3 + détail HAL + envoi POST (endpoints vérifiés en live, headers standard, cookie+bearer frais du coffre au rejeu) dès l'import de session, au refresh et au boot. Une vraie capture prime si navigation il y a eu. Vérifié sur base vierge : 3 contrats créés, 2ᵉ appel no-op ; sync 33 + thread GET OK après coup |
 
 ### ⏳ Reste à faire
 
@@ -250,6 +253,13 @@ Corps : `{"clientMessageId":"<uuid À RÉGÉNÉRER>","text":"…","attachments":
 
 ## 6. Vérités acquises (chaque point a coûté du temps — ne les réapprends pas)
 
+0. **`npm -w apps/server` lance avec cwd=apps/server.** Tout chemin relatif
+   (`./data`, dotenv) se résout depuis là, pas depuis la racine du repo — un
+   DATA_DIR relatif a créé une seconde base vierge (déauth + fixtures au
+   premier plan, tout semblait « perdu »). Racine du repo résolue depuis
+   `config.ts` (import.meta.url) ; config persistée dans
+   `console.config.json` à la racine. Le seed de fixtures ne tourne plus en
+   mode live.
 1. **Ne JAMAIS rejouer le cookie `datadome` de réponse.** Un jar partagé qui
    renvoie le cookie posé par une réponse précédente déclenche une cascade de
    403 (mesuré : 4/8 en alternance 200/403 ; sessions fraîches : 8/8, direct ET
@@ -429,8 +439,11 @@ Limites de réponse : kill switch (423) > automation (409 pour auto) >
 2. **Stress** : bouton Système ou `POST /diagnostics/stress
    {"count":8,"freshSession":false}` — doit être 8/8 depuis le fix cookies.
 3. **Session** : Système → « Ouvrir Chrome & se connecter » → l'opérateur se
-   logue (auto-import en ~4 s, voir événement `session.imported`) → il parcourt
-   l'inbox et envoie UN message (contrats) → « Terminer ».
+   logue (auto-import en ~4 s, voir événement `session.imported`) → « Terminer ».
+   La connexion SEULE suffit : les contrats messagerie (inbox v3, détail HAL,
+   envoi POST) sont synthétisés à l'import depuis les endpoints vérifiés —
+   aucune navigation ni envoi manuel requis (une vraie capture prime si
+   l'opérateur a navigué par hasard).
 4. **Sync** : `POST /conversations/sync` → 33+ conversations ; GET
    `/conversations/<id>` remplit le thread au premier appel.
 5. **Refresh** : `POST /session/refresh` → `refreshed:true`, exp mise à jour.

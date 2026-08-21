@@ -55,7 +55,7 @@ un bug) :
 
 | Secret | Où le remettre | Comment |
 | --- | --- | --- |
-| Session Leboncoin | Système → « Ouvrir Chrome & se connecter » | Chrome s'ouvre sur leboncoin.fr — connecte-toi, l'import est automatique (~4 s), parcoure l'inbox et envoie UN message pour capter les contrats d'envoi, puis « Terminer » |
+| Session Leboncoin | Système → « Ouvrir Chrome & se connecter » | Chrome s'ouvre sur leboncoin.fr — connecte-toi, l'import est automatique (~4 s) puis « Terminer ». **Rien d'autre à faire** : inbox/lecture/envoi reposent sur les contrats synthétiques générés à l'import (les vraies captures, si navigation il y a, priment) |
 | Clé AnySolver | Système → AnySolver → clé + « Vérifier solde » | ou `POST /api/v1/diagnostics/anysolver {"apiKey":"…"}` |
 | Clé LLM (optionnel) | Système → LLM → « Tester » | active preview-reply, llmFilter, auto-réponses. **Pré-requis : créer `apps/server/.env` avec `LLM_BASE_URL=http://34.155.17.195:8045`** (gateway OpenAI-compatible, auth `Bearer`, modèle `gemini-3.7-flash-high` par défaut via `LLM_MODEL`) — le `.env` est ignoré par git, à recréer à la main sur chaque machine |
 | Proxy (optionnel) | Système → Proxy → tester + « Stocker chiffré » | sticky obligatoire pour DataDome — le test 3 sondes le vérifie |

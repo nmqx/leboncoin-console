@@ -106,6 +106,14 @@ export class CaptureSession {
       this.repos.secrets.set("lbc_session", cipher);
       this.sessionSecured = true;
       this.autoImportInfo = { userId, expiresAt };
+      // Contrats messagerie synthétiques si l'opérateur n'a rien capturé :
+      // la connexion seule (tokens) suffit à rendre inbox + envoi opérationnels.
+      if (userId) {
+        try {
+          const { ensureSyntheticContracts } = await import("../leboncoin/messaging.js");
+          ensureSyntheticContracts(this.repos, userId, ua);
+        } catch { /* non bloquant */ }
+      }
       this.repos.audit.insert("session.chrome_auto_import", { cookies: Object.keys(lbc).length, userId });
       this.bus.publish("session.imported", { auto: true, userId, expiresAt });
       logger.info({ userId }, "session sécurisée automatiquement (bearer + cookies)");

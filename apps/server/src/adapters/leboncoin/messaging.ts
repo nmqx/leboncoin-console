@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Conversation, Message } from "@lbc/contracts";
-import type { CapturedRequest, Repos } from "../../repos.js";
+import type { CapturedKind, CapturedRequest, Repos } from "../../repos.js";
 import type { ProxyConfig } from "../../domain/proxy.js";
 import { WreqTransport } from "./wreq-transport.js";
 import { classifyDataDome } from "./datadome.js";
@@ -148,6 +148,78 @@ export function nextConversationPageUrl(json: unknown, currentUrl: string): stri
     return `${currentUrl}${sep}page_hash=${encodeURIComponent(metadata.next_page_hash)}`;
   }
   return nextHalLink(json);
+}
+
+// ---------------------------------------------------------------------------
+// Contrats synthétiques — la connexion Chrome n'exige AUCUN envoi manuel
+// ---------------------------------------------------------------------------
+
+/**
+ * Les endpoints vérifiés en live (inbox v3, détail HAL, envoi POST) sont
+ * connus et stables : à l'import d'une session, on les matérialise en
+ * contrats capturés si l'opérateur n'en a pas capturés en naviguant. Le
+ * rejeu reste identique (cookie + bearer frais du coffre par-dessus). Une
+ * vraie capture, si elle existe, prime toujours.
+ */
+export function ensureSyntheticContracts(
+  repos: Repos,
+  userId: string,
+  userAgent?: string
+): { inserted: string[] } {
+  const inserted: string[] = [];
+  const ua = userAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  const baseHeaders: Record<string, string> = {
+    accept: "application/json, text/plain, */*",
+    origin: "https://www.leboncoin.fr",
+    referer: "https://www.leboncoin.fr/messagerie/",
+    apptype: "leboncoin",
+    "user-agent": ua,
+  };
+  const CONV_ID = "00000000-0000-0000-0000-000000000000";
+
+  const has = (kind: CapturedKind, re: RegExp) =>
+    repos.captured.list(100, kind).some((c) => re.test(c.url));
+
+  // 1. Inbox v3
+  if (!has("inbox", /\/conversations(?:\?|$)/)) {
+    repos.captured.insert({
+      method: "GET",
+      url: "https://api.leboncoin.fr/api/messaging-items-api/v3/conversations",
+      status: 200,
+      requestHeaders: { ...baseHeaders },
+      cookieNames: [],
+      postData: null,
+    });
+    inserted.push("inbox");
+  }
+  // 2. Détail HAL (l'id de conversation est substitué au rejeu)
+  if (!has("inbox", /\/hal\/[^/]+\/conversations\/[^/?]+/)) {
+    repos.captured.insert({
+      method: "GET",
+      url: `https://api.leboncoin.fr/api/messaging/proxy/api/v1/hal/${encodeURIComponent(userId)}/conversations/${CONV_ID}`,
+      status: 200,
+      requestHeaders: { ...baseHeaders },
+      cookieNames: [],
+      postData: null,
+    });
+    inserted.push("hal");
+  }
+  // 3. Envoi (id de conversation substitué, texte remplacé, clientMessageId régénéré)
+  if (!has("send", /\/conversations\/[^/]+\/messages/)) {
+    repos.captured.insert({
+      method: "POST",
+      url: `https://api.leboncoin.fr/api/messaging/proxy/api/v1/hal/${encodeURIComponent(userId)}/conversations/${CONV_ID}/messages`,
+      status: 201,
+      requestHeaders: { ...baseHeaders, "content-type": "application/json" },
+      cookieNames: [],
+      postData: JSON.stringify({ clientMessageId: "00000000-0000-4000-8000-000000000000", text: "contrat synthétique", attachments: [] }),
+    });
+    inserted.push("send");
+  }
+  if (inserted.length > 0) {
+    logger.info({ inserted }, "contrats messagerie synthétiques créés (aucun envoi manuel requis)");
+  }
+  return { inserted };
 }
 
 // ---------------------------------------------------------------------------

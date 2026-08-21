@@ -79,6 +79,14 @@ export async function persistBundle(
     importedAt: new Date().toISOString(),
   };
   repos.secrets.set("lbc_session", await vault.encrypt(JSON.stringify(bundle)));
+  // Contrats messagerie synthétiques si absents — le refresh suffit à rendre
+  // la messagerie opérationnelle sans nouvelle capture.
+  if (bundle.userId) {
+    try {
+      const { ensureSyntheticContracts } = await import("../leboncoin/messaging.js");
+      ensureSyntheticContracts(repos, bundle.userId, bundle.userAgent);
+    } catch { /* non bloquant */ }
+  }
   repos.audit.insert("session.refresh", { userId: bundle.userId, expiresAt });
   bus.publish("session.refreshed", { userId: bundle.userId, expiresAt });
   logger.info({ expiresAt }, "bearer rafraîchi");
