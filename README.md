@@ -14,7 +14,7 @@ Application locale Windows mono-utilisateur qui surveille Leboncoin :
 - recherche paginée en direct (scraping autorisé du site public),
 - veilles cadencées (10 min + jitter), déduplication, historique de prix,
 - messagerie : lecture de l'inbox réel, envoi réel par rejeu de contrats capturés,
-- réponses assistées LLM (brouillon manuel ; auto-réponse pas encore câblée),
+- réponses assistées LLM (brouillon manuel + auto-réponse câblée, OFF par défaut),
 - webhooks Discord + HTTP signé HMAC, outbox transactionnel,
 - console web sombre, dense, clavier d'abord, en français.
 
@@ -24,7 +24,10 @@ sortant vers Leboncoin, React 19 + Vite + TanStack Query/Virtual pour le front.
 Secrets chiffrés **DPAPI CurrentUser** (`@primno/dpapi`).
 
 Machine : Windows 11, Git Bash, Node v24.14.1, Chrome 151.
-Le repo n'est PAS pushé sur un remote — uniquement local, 5 commits.
+Repo public : **github.com/nmqx/leboncoin-console** (historique écrasé puis
+repoussé propre, vérifié sans fuite ; les secrets ne voyagent de toute façon
+jamais — DPAPI lié au compte machine, `data/` ignoré). Reprise sur un autre
+PC : voir `SETUP.md`.
 
 ---
 
@@ -57,6 +60,7 @@ Le repo n'est PAS pushé sur un remote — uniquement local, 5 commits.
 | Rafraîchissement bearer | `refreshed: true` en live, sync OK après |
 | 99 tests offline + 7 e2e | vitest vert, playwright vert, typecheck server+web propre |
 | Console web | 6 écrans vérifiés en captures d'écran, données réelles |
+| UI recherche enrichie (22/08) | panneau détail 420→**540 px** (galerie plus large, le milieu n'est plus vide), colonne **vignette photo** (1ʳᵉ image, 46×34, lazy) en tête de tableau + colonne **Ville** dédiée ; vérifié headless (largeur 540, vignettes rendues, capture `data/shots/05-search-rich.png`) et Playwright 7/7 |
 
 ### ⏳ Reste à faire
 
