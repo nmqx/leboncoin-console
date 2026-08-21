@@ -67,6 +67,7 @@ PC : voir `SETUP.md`.
 | Config persistée `console.config.json` (22/08) | **racine du bug de déauth** : `npm -w apps/server` lance avec cwd=apps/server, un DATA_DIR relatif créait alors une SECONDE base vierge (déauth + fixtures au premier plan). Désormais : DATA_DIR par défaut **absolu** (résolu depuis config.ts, indépendant du cwd) + `console.config.json` à la racine retient mode live, dataDir, gateway LLM, host/port — un relancement (même 2 jours après, même depuis un autre cwd) retombe sur la même base et le même mode. Priorité : env du lancement > JSON > défauts ; le JSON est réécrit à chaque boot effectif (gitignored, zéro secret) |
 | Placeholders éradiqués (22/08) | le seed (annonces/conversations de démo) ne tourne **plus jamais en mode live** (`server.ts`) ; les 24 annonces fixtures + price_history de la vraie base purgées (source='fixtures') — la recherche et la messagerie n'affichent plus que du réel. Les 3 veilles existantes sont celles de l'opérateur (gardées) |
 | Résultats par veille (22/08) | les résultats de veilles ne fondent plus anonymement dans le pool Recherche : table `watch_listings` (migration 3, une annonce peut matcher plusieurs veilles), `EngineRunResult.listingIds` relié au run par le scheduler / bouton lancer / jobs manuels. **Veilles : bouton « résultats · N » par ligne** → ouvre Recherche filtrée (select « Veille » dans la barre de filtres, sans relancer de run). API : `GET /listings?watchId=` + `listingCount` sur `GET /watches`. Vérifié live : veille « Vélos route » → 10 liés, filtre 10/10, handoff Veilles→Recherche OK |
+| Pagination multi-pages réelle (22/08) | **maxItems > 35 fonctionne enfin** : le moteur avance page par page via `page=N` (35/req, respiration 0,7–1,4 s, plafond serveur ~100 pages) jusqu'à maxItems/fin chronologique/page sans nouveau. Vérifié live : « iphone 13 » maxItems 105 → **3 pages, 104 trouvées, 70 nouvelles** en ~3,7 s. Trois pièges corrigés d'un coup : `o` ignoré par le serveur (voir §6 0b), l'arrêt chronologique sur la plus ancienne (un ad bumpé de 54 j tuait la boucle après la page 1), et un zombie tsx sur le port 8787 qui servait l'ancien code pendant les tests |
 | Connexion = tokens seuls (22/08) | **plus besoin d'envoyer un message à la capture** : `ensureSyntheticContracts()` matérialise inbox v3 + détail HAL + envoi POST (endpoints vérifiés en live, headers standard, cookie+bearer frais du coffre au rejeu) dès l'import de session, au refresh et au boot. Une vraie capture prime si navigation il y a eu. Vérifié sur base vierge : 3 contrats créés, 2ᵉ appel no-op ; sync 33 + thread GET OK après coup |
 
 ### ⏳ Reste à faire
@@ -261,6 +262,16 @@ Corps : `{"clientMessageId":"<uuid À RÉGÉNÉRER>","text":"…","attachments":
    `config.ts` (import.meta.url) ; config persistée dans
    `console.config.json` à la racine. Le seed de fixtures ne tourne plus en
    mode live.
+0b. **Pagination HTML : `page=N` (1-based), PAS `o`.** `o` est IGNORÉ côté
+   serveur — chaque requête renvoie la page 1 d'un flux qui bouge (mesuré :
+   o=2/o=3 → 33/35 chevauchement avec la page 1 ; `page=2`/`page=3` →
+   **0 chevauchement**). Piège du diagnostic : des first_id différents entre
+   deux requêtes ne prouvent PAS une pagination — le flux bouge entre les
+   appels ; seul le chevauchement d'ids fait foi. `limit` est ignoré aussi
+   (35 ads/page, fixe ; max_pages ~100 côté serveur). Et l'arrêt
+   chronologique doit se baser sur la PLUS RÉCENTE de la page (un seul ad
+   bumpé/republishé de 50+ j au milieu d'une page fraîche tuait la
+   pagination avec l'ancienne règle sur la plus ancienne).
 1. **Ne JAMAIS rejouer le cookie `datadome` de réponse.** Un jar partagé qui
    renvoie le cookie posé par une réponse précédente déclenche une cascade de
    403 (mesuré : 4/8 en alternance 200/403 ; sessions fraîches : 8/8, direct ET

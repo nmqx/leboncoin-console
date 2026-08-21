@@ -157,7 +157,7 @@ export function parseNextData(html: string): SearchResult {
 // URL de recherche — paramètres validés en amont : text, category, price, tri date
 // ---------------------------------------------------------------------------
 
-export function buildSearchUrl(spec: SearchSpec, offset: number): string {
+export function buildSearchUrl(spec: SearchSpec, page: number): string {
   const p = new URLSearchParams();
   if (spec.query.trim() && spec.query.trim() !== "toutes annonces") p.set("text", spec.query.trim());
   if (spec.categoryIds?.[0]) p.set("category", spec.categoryIds[0]);
@@ -186,7 +186,10 @@ export function buildSearchUrl(spec: SearchSpec, offset: number): string {
   }
   p.set("sort", "date");
   p.set("order", "desc");
-  if (offset > 0) p.set("o", String(offset));
+  // pagination : `page=N` 1-based (vérifié en live : page=2/3 → fenêtres
+  // disjointes, 0 chevauchement ; `o` est IGNORÉ côté serveur — chaque
+  // requête renvoyait la page 1 d'un flux qui bouge)
+  if (page > 1) p.set("page", String(page));
   return `https://www.leboncoin.fr/recherche?${p.toString()}`;
 }
 
@@ -343,17 +346,24 @@ export class LiveEngine implements SearchEngine {
     let pages = 0;
     let oldestSeen = Number.POSITIVE_INFINITY;
 
-    for (let offset = 0; offset < maxItems; offset += 35) {
+    // `o` = numéro de page : on avance page par page jusqu'à maxPages du
+    // serveur (plafond ~100), maxItems ou fin chronologique. Une page sans
+    // aucune nouvelle annonce (flux qui bouge, param ignoré) arrête la boucle.
+    let serverMaxPages = 1;
+    for (let page = 1; page <= serverMaxPages; page++) {
       // respiration entre pages : les rafales déclenchent DataDome même avec
       // la bonne empreinte (constaté au stress test : 1×200 puis 403 en série)
-      if (offset > 0) await new Promise((r) => setTimeout(r, 700 + Math.floor(Math.random() * 700)));
-      const url = buildSearchUrl(spec, offset);
+      if (page > 1) await new Promise((r) => setTimeout(r, 700 + Math.floor(Math.random() * 700)));
+      const url = buildSearchUrl(spec, page);
       const html = await this.fetchPage(
         transport, url, "https://www.leboncoin.fr/", anysolverKey, correlationId, solveAttempts, proxy
       );
       const result = parseNextData(html);
       pages++;
+      serverMaxPages = Math.min(result.maxPages, 100);
 
+      let newOnPage = 0;
+      let newestOnPage = 0;
       for (const raw of result.ads) {
         if (collected.length >= maxItems) break;
         const listing = normalizeAd(raw);
@@ -365,17 +375,23 @@ export class LiveEngine implements SearchEngine {
           const dep = listing.location?.department;
           if (dep && !spec.locations.departments.includes(dep)) continue;
         }
+        newOnPage++;
         collected.push({ ...listing, score: relevanceScore(spec.query, listing) });
         const ts = listing.publishedAt ? Date.parse(listing.publishedAt) : Number.NaN;
-        if (!Number.isNaN(ts)) oldestSeen = Math.min(oldestSeen, ts);
+        if (!Number.isNaN(ts)) {
+          oldestSeen = Math.min(oldestSeen, ts);
+          newestOnPage = Math.max(newestOnPage, ts);
+        }
       }
 
-      // arrêt chronologique : plus rien de récent que MAX_AGE_DAYS ou dernière page
-      const ageDays = (Date.now() - oldestSeen) / 86_400_000;
+      // arrêt chronologique VRAI : en tri date desc, si la plus RÉCENTE de la
+      // page dépasse l'âge max, tout ce qui est plus profond est plus vieux.
+      // (l'ancienne règle sur la plus ancienne tuait la pagination à cause
+      // d'un seul ad republishé/bumpé au milieu d'une page fraîche)
       if (collected.length >= maxItems) break;
-      if (pages >= result.maxPages) break;
-      if (collected.length > 0 && ageDays > MAX_AGE_DAYS) break;
+      if (page > 1 && newOnPage === 0) break;
       if (result.ads.length === 0) break;
+      if (newestOnPage > 0 && Date.now() - newestOnPage > MAX_AGE_DAYS * 86_400_000) break;
     }
 
     // score bonne affaire sur le lot collecté, puis seuil éventuel

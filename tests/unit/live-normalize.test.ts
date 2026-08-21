@@ -91,20 +91,21 @@ describe("parseNextData", () => {
 });
 
 describe("buildSearchUrl", () => {
-  it("paramètres validés : text, category, price, tri date desc, offset", () => {
-    const url = new URL(buildSearchUrl({ query: "vélo route", categoryIds: ["4"], priceCents: { min: 30000, max: 120000 }, maxItems: 200 }, 35));
+  it("paramètres validés : text, category, price, tri date desc, numéro de page", () => {
+    const url = new URL(buildSearchUrl({ query: "vélo route", categoryIds: ["4"], priceCents: { min: 30000, max: 120000 }, maxItems: 200 }, 2));
     expect(url.searchParams.get("text")).toBe("vélo route");
     expect(url.searchParams.get("category")).toBe("4");
     expect(url.searchParams.get("price")).toBe("300-1200");
     expect(url.searchParams.get("sort")).toBe("date");
     expect(url.searchParams.get("order")).toBe("desc");
-    expect(url.searchParams.get("o")).toBe("35");
+    // `page` est le numéro de page (vérifié live, fenêtres disjointes) — pas `o`
+    expect(url.searchParams.get("page")).toBe("2");
   });
 
-  it("requête par défaut «toutes annonces» → pas de paramètre text", () => {
-    const url = new URL(buildSearchUrl({ query: "toutes annonces", maxItems: 50 }, 0));
+  it("requête par défaut «toutes annonces» → pas de paramètre text, page 1 sans page", () => {
+    const url = new URL(buildSearchUrl({ query: "toutes annonces", maxItems: 50 }, 1));
     expect(url.searchParams.has("text")).toBe(false);
-    expect(url.searchParams.has("o")).toBe(false);
+    expect(url.searchParams.has("page")).toBe(false);
   });
 });
 
