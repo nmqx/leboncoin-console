@@ -159,18 +159,27 @@ export default function SearchView() {
       ),
     },
     {
+      key: "thumb", header: "", width: "54px",
+      render: (l) =>
+        l.images[0] ? (
+          <img className="thumb" src={l.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" />
+        ) : (
+          <span className="muted">—</span>
+        ),
+    },
+    {
       key: "score", header: "Pertinence", width: "92px", sortKey: "relevance",
       render: (l) => <ScoreBar value={l.score} />,
     },
     {
-      key: "title", header: "Titre", width: "minmax(220px, 3fr)",
+      key: "title", header: "Titre", width: "minmax(260px, 3fr)",
       render: (l) => (
-        <span style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden" }}>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{l.title}</span>
-          {l.location?.city ? <span className="muted" style={{ flexShrink: 0 }}>{l.location.city}</span> : null}
+        <span title={l.body ?? l.title} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+          {l.title}
         </span>
       ),
     },
+    { key: "city", header: "Ville", width: "110px", render: (l) => <span className="muted">{l.location?.city ?? "—"}</span> },
     { key: "category", header: "Catégorie", width: "90px", render: (l) => <span className="muted">{l.category ?? "—"}</span> },
     {
       key: "price", header: "Prix", width: "90px", align: "right", sortKey: "price",

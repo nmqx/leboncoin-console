@@ -33,7 +33,7 @@
   --row-h-compact: 34px;
   --rail-w: 48px;
   --status-h: 28px;
-  --detail-w: 420px;
+  --detail-w: 540px;
 
   --ease: cubic-bezier(0.25, 1, 0.5, 1); /* ease-out-quart */
   --t-fast: 140ms;
