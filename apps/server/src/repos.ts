@@ -119,11 +119,15 @@ export class ListingsRepo {
 
   search(filters: {
     query?: string; priceMin?: number; priceMax?: number; ownerType?: "private" | "pro";
-    shippable?: boolean; department?: string; category?: string;
+    shippable?: boolean; department?: string; category?: string; watchId?: number;
     limit: number; offset: number;
   }): { items: Listing[]; total: number } {
     const where: string[] = [];
     const params: Array<string | number> = [];
+    if (filters.watchId !== undefined) {
+      where.push("id IN (SELECT listing_id FROM watch_listings WHERE watch_id = ?)");
+      params.push(filters.watchId);
+    }
     if (filters.query) {
       where.push("(title LIKE ? OR body LIKE ?)");
       const like = `%${filters.query}%`;
@@ -224,6 +228,19 @@ export class WatchesRepo {
 
   markRun(id: number, status: string): void {
     this.db.run("UPDATE watches SET last_run_at = ?, last_status = ? WHERE id = ?", iso(), status, id);
+  }
+
+  /** Relie un run de veille à ses résultats (idempotent, multi-veilles OK). */
+  linkListings(watchId: number, listingIds: string[]): void {
+    if (listingIds.length === 0) return;
+    const stmt = this.db.raw.prepare(
+      "INSERT OR IGNORE INTO watch_listings (watch_id, listing_id, seen_at) VALUES (?, ?, ?)"
+    );
+    for (const listingId of listingIds) stmt.run(watchId, listingId, iso());
+  }
+
+  listingCount(watchId: number): number {
+    return (this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM watch_listings WHERE watch_id = ?", watchId))?.n ?? 0;
   }
 }
 

@@ -10,6 +10,8 @@ export interface EngineRunResult {
   found: number;
   newCount: number;
   pageCount: number;
+  /** Ids conservés par CE run (après filtres) — relie la veille à ses résultats. */
+  listingIds: string[];
 }
 
 export interface SearchEngine {
@@ -115,7 +117,7 @@ export class FixtureEngine implements SearchEngine {
       }
     }
 
-    return { found: sorted.length, newCount, pageCount: Math.max(1, Math.ceil(sorted.length / 35)) };
+    return { found: sorted.length, newCount, pageCount: Math.max(1, Math.ceil(sorted.length / 35)), listingIds: sorted.map((l) => l.id) };
   }
 }
 

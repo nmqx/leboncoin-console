@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Play, Pause, Trash2, Plus, X, Pencil, RefreshCw } from "lucide-react";
+import { Play, Pause, Trash2, Plus, X, Pencil, RefreshCw, Eye } from "lucide-react";
 import type { SearchSpec, Watch } from "@lbc/contracts";
+
+/** GET /watches renvoie le nombre de résultats liés par veille. */
+type WatchWithCount = Watch & { listingCount?: number };
 import { LBC_CATEGORIES, rangeAttributesForCategory } from "@lbc/contracts";
 import { api } from "../../api";
 import { timeAgo, dt } from "../../format";
@@ -338,6 +341,7 @@ export default function WatchesView() {
                   <th style={{ width: 70 }}>Cadence</th>
                   <th style={{ width: 110 }}>Dernier run</th>
                   <th style={{ width: 110 }}>Statut</th>
+                  <th style={{ width: 150 }}>Résultats</th>
                   <th style={{ width: 210 }}></th>
                 </tr>
               </thead>
@@ -354,6 +358,19 @@ export default function WatchesView() {
                        w.lastStatus === "quarantined" ? <Chip cls="coral">quarantaine</Chip> :
                        w.lastStatus ? <Chip cls="amber">{w.lastStatus}</Chip> :
                        <span className="muted">jamais lancée</span>}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn subtle"
+                        title="Voir les résultats de cette veille dans Recherche"
+                        onClick={() => {
+                          window.sessionStorage.setItem("lbc.watchFilter", String(w.id));
+                          window.location.hash = "#/search";
+                        }}
+                      >
+                        <Eye size={13} />résultats{typeof (w as WatchWithCount).listingCount === "number" ? ` · ${(w as WatchWithCount).listingCount}` : ""}
+                      </button>
                     </td>
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       <button

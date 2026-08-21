@@ -190,6 +190,20 @@ ALTER TABLE conversations ADD COLUMN hal_links_json TEXT;
 INSERT OR IGNORE INTO settings (key, value) VALUES ('routing', '{"search":"direct","messaging":"direct"}');
 `,
   },
+  {
+    id: 3,
+    name: "watch_listings",
+    sql: `
+-- résultats par veille : une annonce peut matcher plusieurs veilles
+CREATE TABLE IF NOT EXISTS watch_listings (
+  watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+  listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  seen_at TEXT NOT NULL,
+  PRIMARY KEY (watch_id, listing_id)
+);
+CREATE INDEX IF NOT EXISTS idx_watch_listings_watch ON watch_listings(watch_id, seen_at DESC);
+`,
+  },
 ];
 
 export class Db {

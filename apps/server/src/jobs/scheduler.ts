@@ -50,6 +50,7 @@ export function startScheduler(
         return;
       }
       const result = await engine.run(jobId, spec, jobId);
+      repos.watches.linkListings(watchId, result.listingIds);
       repos.jobs.finish(jobId, "completed", {
         pageCount: result.pageCount,
         itemsFound: result.found,

@@ -69,11 +69,38 @@ export function toSpec(f: ActiveFilters): Record<string, unknown> {
 export default function SearchView() {
   const qc = useQueryClient();
   const [filters, setFilters] = useState<ActiveFilters>(DEFAULT_FILTERS);
-  const [applied, setApplied] = useState<ListingFilters>({ limit: 300, sort: "publishedAt", dir: "desc" });
+  // si la vue Veilles a déposé un filtre, il s'applique dès le premier rendu
+  const [applied, setApplied] = useState<ListingFilters>(() => {
+    const v = window.sessionStorage.getItem("lbc.watchFilter");
+    const n = v ? Number(v) : NaN;
+    const f: ListingFilters = { limit: 300, sort: "publishedAt", dir: "desc" };
+    if (Number.isInteger(n) && n > 0) f.watchId = n;
+    return f;
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [watchBar, setWatchBar] = useState(false);
   const queryRef = useRef<HTMLInputElement>(null);
+
+  // Filtre par veille : main tendue par la vue Veilles (sessionStorage),
+  // ou choix direct dans la barre — filtre la base, ne relance PAS de run.
+  const [watchFilter, setWatchFilter] = useState<number | "">(() => {
+    const v = window.sessionStorage.getItem("lbc.watchFilter");
+    window.sessionStorage.removeItem("lbc.watchFilter");
+    const n = v ? Number(v) : NaN;
+    return Number.isInteger(n) && n > 0 ? n : "";
+  });
+  const watchesQuery = useQuery({ queryKey: ["watches"], queryFn: api.watches });
+
+  const setWatch = (id: number | "") => {
+    setWatchFilter(id);
+    setApplied((prev) => {
+      const f: ListingFilters = { ...prev };
+      if (id) f.watchId = id;
+      else delete f.watchId;
+      return f;
+    });
+  };
 
   useHotkey({ key: "/", description: "Focus recherche", handler: () => queryRef.current?.focus() });
 
@@ -315,6 +342,19 @@ export default function SearchView() {
             onChange={(e) => set({ maxItems: Math.max(1, Number(e.target.value) || 10) })} />
         </label>
         <span className="sep" />
+        <select
+          value={watchFilter}
+          onChange={(e) => setWatch(e.target.value ? Number(e.target.value) : "")}
+          aria-label="Veille"
+          title="N'afficher que les résultats d'une veille (sans relancer de recherche)"
+        >
+          <option value="">Toutes sources</option>
+          {(watchesQuery.data?.watches ?? []).map((w) => (
+            <option key={w.id} value={w.id}>
+              Veille · {w.name}
+            </option>
+          ))}
+        </select>
         <select value={filters.sort} onChange={(e) => set({ sort: e.target.value as ActiveFilters["sort"] })} aria-label="Tri">
           <option value="publishedAt">Nouveauté</option>
           <option value="price">Prix</option>

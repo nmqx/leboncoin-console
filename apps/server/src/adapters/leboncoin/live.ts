@@ -454,7 +454,7 @@ export class LiveEngine implements SearchEngine {
       }
     }
     logger.info({ jobId, found: withDeal.length, collected: collected.length, newCount, pages }, "engine live terminé");
-    return { found: withDeal.length, newCount, pageCount: pages };
+    return { found: withDeal.length, newCount, pageCount: pages, listingIds: withDeal.map((l) => l.id) };
   }
 }
 

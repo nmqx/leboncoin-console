@@ -61,6 +61,7 @@ export interface ListingFilters {
   shippable?: boolean;
   department?: string;
   category?: string;
+  watchId?: number;
   sort?: "price" | "publishedAt" | "relevance" | "distance";
   dir?: "asc" | "desc";
   limit?: number;
@@ -90,7 +91,7 @@ export const api = {
 
   searchJob: (spec: unknown) => call<SearchJob>("/search-jobs", { method: "POST", body: JSON.stringify(spec) }),
 
-  watches: () => call<{ watches: Watch[] }>("/watches"),
+  watches: () => call<{ watches: Array<Watch & { listingCount: number }> }>("/watches"),
 
   categories: () =>
     call<{

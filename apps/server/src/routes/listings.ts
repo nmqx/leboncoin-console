@@ -31,6 +31,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
     ctx.bus.publish("search.started", { jobId, correlationId: jobId });
     try {
       const result = await ctx.engine.run(jobId, spec, jobId);
+      if (watchId !== null) ctx.repos.watches.linkListings(watchId, result.listingIds);
       ctx.repos.jobs.finish(jobId, "completed", {
         pageCount: result.pageCount,
         itemsFound: result.found,
@@ -85,6 +86,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
     category: z.string().optional(),
     sort: z.enum(["price", "publishedAt", "relevance", "distance"]).optional(),
     dir: z.enum(["asc", "desc"]).optional(),
+    watchId: z.coerce.number().int().optional(),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   });
@@ -99,6 +101,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
       shippable: q.shippable,
       department: q.department,
       category: q.category,
+      watchId: q.watchId,
       limit: q.limit,
       offset: q.offset,
     });
@@ -145,7 +148,12 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
   });
 
   app.get("/api/v1/watches", async () => {
-    return { watches: ctx.repos.watches.list() };
+    return {
+      watches: ctx.repos.watches.list().map((w) => ({
+        ...w,
+        listingCount: ctx.repos.watches.listingCount(w.id),
+      })),
+    };
   });
 
   app.post("/api/v1/watches", async (req) => {
@@ -185,6 +193,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
     ctx.repos.jobs.create(jobId, watch.id, watch.spec, jobId);
     try {
       const result = await ctx.engine.run(jobId, watch.spec, jobId);
+      ctx.repos.watches.linkListings(watch.id, result.listingIds);
       ctx.repos.jobs.finish(jobId, "completed", {
         pageCount: result.pageCount,
         itemsFound: result.found,

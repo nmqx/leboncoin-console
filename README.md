@@ -66,6 +66,7 @@ PC : voir `SETUP.md`.
 | Fix bouton « Tester » LLM (22/08) | le clic UI renvoyait `Body cannot be empty when content-type is set to 'application/json'` — le client envoyait le header JSON sans body et Fastify refuse. **Double fix** : `api.ts` ne pose `Content-Type` qu'avec un body, et `server.ts` tolère un corps JSON vide (content-parser dédié — protège aussi sync/refresh/cancel appelés sans body). Vérifié sur le **vrai bouton** dans l'UI : « OK — gemini-3.7-flash-high · ~2 s · pong » |
 | Config persistée `console.config.json` (22/08) | **racine du bug de déauth** : `npm -w apps/server` lance avec cwd=apps/server, un DATA_DIR relatif créait alors une SECONDE base vierge (déauth + fixtures au premier plan). Désormais : DATA_DIR par défaut **absolu** (résolu depuis config.ts, indépendant du cwd) + `console.config.json` à la racine retient mode live, dataDir, gateway LLM, host/port — un relancement (même 2 jours après, même depuis un autre cwd) retombe sur la même base et le même mode. Priorité : env du lancement > JSON > défauts ; le JSON est réécrit à chaque boot effectif (gitignored, zéro secret) |
 | Placeholders éradiqués (22/08) | le seed (annonces/conversations de démo) ne tourne **plus jamais en mode live** (`server.ts`) ; les 24 annonces fixtures + price_history de la vraie base purgées (source='fixtures') — la recherche et la messagerie n'affichent plus que du réel. Les 3 veilles existantes sont celles de l'opérateur (gardées) |
+| Résultats par veille (22/08) | les résultats de veilles ne fondent plus anonymement dans le pool Recherche : table `watch_listings` (migration 3, une annonce peut matcher plusieurs veilles), `EngineRunResult.listingIds` relié au run par le scheduler / bouton lancer / jobs manuels. **Veilles : bouton « résultats · N » par ligne** → ouvre Recherche filtrée (select « Veille » dans la barre de filtres, sans relancer de run). API : `GET /listings?watchId=` + `listingCount` sur `GET /watches`. Vérifié live : veille « Vélos route » → 10 liés, filtre 10/10, handoff Veilles→Recherche OK |
 | Connexion = tokens seuls (22/08) | **plus besoin d'envoyer un message à la capture** : `ensureSyntheticContracts()` matérialise inbox v3 + détail HAL + envoi POST (endpoints vérifiés en live, headers standard, cookie+bearer frais du coffre au rejeu) dès l'import de session, au refresh et au boot. Une vraie capture prime si navigation il y a eu. Vérifié sur base vierge : 3 contrats créés, 2ᵉ appel no-op ; sync 33 + thread GET OK après coup |
 
 ### ⏳ Reste à faire
@@ -389,7 +390,7 @@ GET  /api/v1/events                    SSE (listing.created, watch.*,
                                        session.imported|refreshed, chrome.*)
 POST /api/v1/search-jobs               {spec SearchSpec} → engine (fixtures|live)
 GET  /api/v1/categories                carte catégories + attributs par famille
-GET  /api/v1/listings[/:id]            + filtres prix/vendeur/dépt/livrable, tri
+GET  /api/v1/listings[/:id]            + filtres prix/vendeur/dépt/livrable/tri, ?watchId=N (résultats d'une veille)
 GET|POST|PATCH|DELETE /api/v1/watches… + POST /:id/run (spec complète :
                                        catégorie, urgent, ad_type, attributs,
                                        cadence, dealThreshold « top % »)
