@@ -54,6 +54,25 @@ export async function buildServer(opts: BuildOptions): Promise<FastifyInstance> 
   // pino 9 structurellement compatible, écart de typage mineur (msgPrefix) — cast contrôlé
   const app = Fastify({ loggerInstance: logger as unknown as FastifyBaseLogger, bodyLimit: 2 * 1024 * 1024 });
 
+  // Plusieurs routes POST sans body (diagnostics, sync, refresh…) : un client
+  // qui envoie Content-Type: application/json avec un corps vide ne doit pas
+  // être rejeté par le parseur par défaut de Fastify.
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_req, body, done) => {
+      if ((body as string) === "") {
+        done(null, undefined);
+        return;
+      }
+      try {
+        done(null, JSON.parse(body as string));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    }
+  );
+
   const ctx: AppCtx = {
     cfg,
     repos,

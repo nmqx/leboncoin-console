@@ -28,8 +28,10 @@ export class ApiError extends Error {
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    // Content-Type uniquement avec un body — un POST vide marqué JSON fait
+    // rejeter la requête par Fastify ("Body cannot be empty…").
+    ...(init?.body != null ? { headers: { "Content-Type": "application/json", ...init?.headers } } : { headers: init?.headers }),
   });
   const text = await res.text();
   let body: unknown = null;
