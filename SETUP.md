@@ -57,7 +57,7 @@ un bug) :
 | --- | --- | --- |
 | Session Leboncoin | Système → « Ouvrir Chrome & se connecter » | Chrome s'ouvre sur leboncoin.fr — connecte-toi, l'import est automatique (~4 s), parcoure l'inbox et envoie UN message pour capter les contrats d'envoi, puis « Terminer » |
 | Clé AnySolver | Système → AnySolver → clé + « Vérifier solde » | ou `POST /api/v1/diagnostics/anysolver {"apiKey":"…"}` |
-| Clé LLM (optionnel) | Système → LLM → « Tester » | active preview-reply, llmFilter, auto-réponses |
+| Clé LLM (optionnel) | Système → LLM → « Tester » | active preview-reply, llmFilter, auto-réponses. **Pré-requis : créer `apps/server/.env` avec `LLM_BASE_URL=http://34.155.17.195:8045`** (gateway OpenAI-compatible, auth `Bearer`, modèle `gemini-3.7-flash-high` par défaut via `LLM_MODEL`) — le `.env` est ignoré par git, à recréer à la main sur chaque machine |
 | Proxy (optionnel) | Système → Proxy → tester + « Stocker chiffré » | sticky obligatoire pour DataDome — le test 3 sondes le vérifie |
 
 Le profil Chrome de connexion vit dans `data/chrome-profile/` : il survit aux
@@ -105,8 +105,9 @@ npm run typecheck      # server + web, strict
 ## 7. Où continuer
 
 Le README §2 « Reste à faire » est la liste vivante. En bref aujourd'hui :
-clé LLM à fournir (active brouillons + auto-réponses), premier tir réel de
-l'auto-réponse à faire sur une conversation choisie, solve AnySolver armé
+clé LLM fournie et testée (diagnostics « pong », filtre sémantique vérifié en
+live — usage limité au filtrage sur demande de l'opérateur), premier tir réel
+de l'auto-réponse à faire sur une conversation choisie, solve AnySolver armé
 mais jamais requis. Toute la connaissance coûteuse (contrats API, pièges
 DataDome/CDP/chrome, format des requêtes messagerie) est dans README §5–§6.
 

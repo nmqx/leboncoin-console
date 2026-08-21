@@ -62,6 +62,7 @@ PC : voir `SETUP.md`.
 | Console web | 6 écrans vérifiés en captures d'écran, données réelles |
 | UI recherche enrichie (22/08) | panneau détail 420→**540 px** (galerie plus large, le milieu n'est plus vide), colonne **vignette photo** (1ʳᵉ image, 46×34, lazy) en tête de tableau + colonne **Ville** dédiée ; vérifié headless (largeur 540, vignettes rendues, capture `data/shots/05-search-rich.png`) et Playwright 7/7 |
 | UI messagerie polish (22/08) | bulles de chat vraies (coins 3/10 asymétriques, bordures cadre supprimées, méta alignée à droite sur les sortantes), puits de messages sur fond `--bg-inset`, liste inbox : barre d'accent sur la sélection + point non-lu + prénom en plus clair, composeur hiérarchisé (Brouillon LLM en subtle, Envoyer en primary). Vérifié : styles calculés in/out, scroll thread, capture `data/shots/06-inbox-polish.png`, Playwright 7/7 |
+| LLM gateway opérationnelle (22/08) | clé fournie par l'opérateur → coffre DPAPI ; gateway **OpenAI-compatible** (`/v1/chat/completions`, `Authorization: Bearer`, modèle `gemini-3.7-flash-high`) — le client initial parlait Anthropic `/v1/messages`, corrigé. Base URL dans `apps/server/.env` (`LLM_BASE_URL`, ignoré par git, piège dotenv : chargé depuis `apps/server/`, pas la racine). Diagnostics « pong » 1,5 s ; **filtre sémantique vérifié en live** : requête « nintendo switch » + `llmFilter` → seules des consoles réelles retenues (les jeux/accessoires « Just Dance », « Écran de switch », « Manettes switch » exclus). `Authorization` déjà rédigé dans les logs. Usage limité au filtrage sur demande de l'opérateur |
 
 ### ⏳ Reste à faire
 
@@ -73,10 +74,10 @@ ou par nécessité de circonstance :
    challengées). Si un jour `challenge.detected` apparaît : budget 100/jour,
    2 tentatives max, repli proxy ensuite — tout est armé.
 2. **Tir réel de l'auto-réponse** — l'opérateur l'a explicitement écarté
-   (« don't stress my account »). Premier vrai test : activer automation avec
-   une vraie clé LLM et une conversation entrante choisie.
-3. **Clé LLM** — jamais fournie : preview-reply, llmFilter et auto-réponses
-   sont en attente de `POST /system/llm-key`.
+   (« don't stress my account »). La clé LLM existe désormais (voir ligne
+   « LLM gateway » du tableau) ; premier vrai test : activer automation avec
+   une conversation entrante choisie. **Usage actuellement limité au
+   filtrage sémantique (`llmFilter`) sur demande de l'opérateur.**
 
 ---
 

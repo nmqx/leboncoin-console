@@ -2,24 +2,31 @@ import { describe, it, expect, vi } from "vitest";
 import { LlmClient, validateReply, ReplyValidationError, normalizeBaseUrl, REPLY_SYSTEM_PROMPT } from "../../apps/server/src/adapters/llm/gemini.js";
 
 function okResponse(text: string) {
-  return new Response(JSON.stringify({ content: [{ type: "text", text }] }), { status: 200 });
+  return new Response(
+    JSON.stringify({ choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }] }),
+    { status: 200 }
+  );
 }
 
-describe("LlmClient (Anthropic-compatible)", () => {
-  it("POST {base}/v1/messages avec x-api-key et anthropic-version", async () => {
+describe("LlmClient (OpenAI-compatible)", () => {
+  it("POST {base}/v1/chat/completions avec Authorization Bearer et rôle system", async () => {
     const fn = vi.fn(async () => okResponse("pong")) as unknown as typeof fetch;
     const client = new LlmClient({ baseUrl: "http://llm.local", apiKey: "sk-1", model: "gemini-3.7-flash-high" }, fn);
     const out = await client.complete("system", [{ role: "user", content: "ping" }]);
     expect(out).toBe("pong");
     const call = (fn as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as unknown as [string, RequestInit];
-    expect(call[0]).toBe("http://llm.local/v1/messages");
+    expect(call[0]).toBe("http://llm.local/v1/chat/completions");
     const headers = call[1].headers as Record<string, string>;
-    expect(headers["x-api-key"]).toBe("sk-1");
-    expect(headers["anthropic-version"]).toBe("2023-06-01");
+    expect(headers["Authorization"]).toBe("Bearer sk-1");
+    expect(headers["x-api-key"]).toBeUndefined();
     const body = JSON.parse(call[1].body as string);
     expect(body.model).toBe("gemini-3.7-flash-high");
     expect(body.max_tokens).toBe(512);
     expect(body.temperature).toBeCloseTo(0.3);
+    expect(body.messages).toEqual([
+      { role: "system", content: "system" },
+      { role: "user", content: "ping" },
+    ]);
   });
 
   it("base URL avec /v1 ou slashs finaux → normalisée sans double chemin", () => {

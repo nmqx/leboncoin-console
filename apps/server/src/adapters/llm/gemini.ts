@@ -1,9 +1,9 @@
 import { requestJson, type RequestOptions } from "../../security/http.js";
 
 // ---------------------------------------------------------------------------
-// Client Anthropic-compatible (gateway OpenCode, modèle gemini-3.7-flash-high)
-//   POST {LLM_BASE_URL}/v1/messages
-//   x-api-key + anthropic-version: 2023-06-01
+// Client OpenAI-compatible (gateway 34.155.17.195:8045, modèle gemini-3.7-flash-high)
+//   POST {LLM_BASE_URL}/v1/chat/completions
+//   Authorization: Bearer <clé>
 // ATTENTION : transport HTTP public accepté par l'opérateur — bandeau permanent
 // dans l'interface. Jamais de secret dans le prompt.
 // ---------------------------------------------------------------------------
@@ -22,8 +22,8 @@ export interface LlmTurn {
   content: string;
 }
 
-interface AnthropicResponse {
-  content?: Array<{ type: string; text?: string }>;
+interface ChatCompletionsResponse {
+  choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
   error?: { type?: string; message?: string };
 }
 
@@ -52,20 +52,18 @@ export class LlmClient {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": this.cfg.apiKey,
-        "anthropic-version": "2023-06-01",
+        Authorization: `Bearer ${this.cfg.apiKey}`,
       },
       body: JSON.stringify({
         model: this.cfg.model,
         max_tokens: this.cfg.maxTokens,
         temperature: this.cfg.temperature,
-        system,
-        messages: turns.map((t) => ({ role: t.role, content: t.content })),
+        messages: [{ role: "system", content: system }, ...turns],
       }),
       timeoutMs: this.cfg.timeoutMs,
     };
-    const res = await requestJson<AnthropicResponse>(
-      `${normalizeBaseUrl(this.cfg.baseUrl)}/v1/messages`,
+    const res = await requestJson<ChatCompletionsResponse>(
+      `${normalizeBaseUrl(this.cfg.baseUrl)}/v1/chat/completions`,
       opts,
       this.fetchImpl
     );
@@ -75,11 +73,13 @@ export class LlmClient {
     if (res.status < 200 || res.status >= 300) {
       throw new LlmError(`LLM HTTP ${res.status}: ${res.json?.error?.message ?? res.text.slice(0, 200)}`, false);
     }
-    const text = (res.json?.content ?? [])
-      .filter((c) => c.type === "text" && typeof c.text === "string")
-      .map((c) => c.text!)
-      .join("\n")
-      .trim();
+    const content = res.json?.choices?.[0]?.message?.content;
+    const text = (typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.filter((c) => c.type !== "image" && typeof c.text === "string").map((c) => c.text!).join("\n")
+        : ""
+    ).trim();
     if (!text) throw new LlmError("Réponse LLM vide", true);
     return text;
   }
