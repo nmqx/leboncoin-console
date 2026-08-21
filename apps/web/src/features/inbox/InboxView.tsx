@@ -119,11 +119,11 @@ export default function InboxView() {
             <div
               key={c.id}
               role="listitem"
-              className={`inbox-item${c.id === selectedId ? " selected" : ""}`}
+              className={`inbox-item${c.id === selectedId ? " selected" : ""}${c.unreadCount > 0 ? " unread" : ""}`}
               onClick={() => { setSelectedId(c.id); setLlmPreview(null); setSendError(null); }}
             >
               <div className="top">
-                <span className="who">{c.otherUser}</span>
+                <span className="who">{c.unreadCount > 0 ? <span className="dot" /> : null}{c.otherUser}</span>
                 <span className="when" title={dt(c.lastMessageAt)}>{timeAgo(c.lastMessageAt)}</span>
               </div>
               <div className="ad" title={c.listingTitle ?? ""}>{c.listingTitle ?? "—"}</div>
@@ -209,7 +209,7 @@ export default function InboxView() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <button
                     type="button"
-                    className="btn"
+                    className="btn subtle"
                     disabled={preview.isPending}
                     onClick={() => preview.mutate()}
                     title="Générer un brouillon avec le LLM (configuré dans Système)"

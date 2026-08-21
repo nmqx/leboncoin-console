@@ -61,6 +61,7 @@ PC : voir `SETUP.md`.
 | 99 tests offline + 7 e2e | vitest vert, playwright vert, typecheck server+web propre |
 | Console web | 6 écrans vérifiés en captures d'écran, données réelles |
 | UI recherche enrichie (22/08) | panneau détail 420→**540 px** (galerie plus large, le milieu n'est plus vide), colonne **vignette photo** (1ʳᵉ image, 46×34, lazy) en tête de tableau + colonne **Ville** dédiée ; vérifié headless (largeur 540, vignettes rendues, capture `data/shots/05-search-rich.png`) et Playwright 7/7 |
+| UI messagerie polish (22/08) | bulles de chat vraies (coins 3/10 asymétriques, bordures cadre supprimées, méta alignée à droite sur les sortantes), puits de messages sur fond `--bg-inset`, liste inbox : barre d'accent sur la sélection + point non-lu + prénom en plus clair, composeur hiérarchisé (Brouillon LLM en subtle, Envoyer en primary). Vérifié : styles calculés in/out, scroll thread, capture `data/shots/06-inbox-polish.png`, Playwright 7/7 |
 
 ### ⏳ Reste à faire
 
