@@ -96,7 +96,8 @@ describe("buildSearchUrl", () => {
     expect(url.searchParams.get("text")).toBe("vélo route");
     expect(url.searchParams.get("category")).toBe("4");
     expect(url.searchParams.get("price")).toBe("300-1200");
-    expect(url.searchParams.get("sort")).toBe("date");
+    // `sort=` est un piège serveur (text ignoré) — seulement `order=desc`
+    expect(url.searchParams.has("sort")).toBe(false);
     expect(url.searchParams.get("order")).toBe("desc");
     // `page` est le numéro de page (vérifié live, fenêtres disjointes) — pas `o`
     expect(url.searchParams.get("page")).toBe("2");

@@ -184,7 +184,10 @@ export function buildSearchUrl(spec: SearchSpec, page: number): string {
       p.set(key, String(value));
     }
   }
-  p.set("sort", "date");
+  // PIÈGE : tout paramètre `sort=` fait IGNORER `text` côté serveur (flux
+  // générique national renvoyé, 200 OK) — vérifié en live sur sort=date et
+  // sort=time. `order=desc` seul est inoffensif ET chronologique (descendre
+  // en pages : plus vieux). Jamais de `sort=`.
   p.set("order", "desc");
   // pagination : `page=N` 1-based (vérifié en live : page=2/3 → fenêtres
   // disjointes, 0 chevauchement ; `o` est IGNORÉ côté serveur — chaque

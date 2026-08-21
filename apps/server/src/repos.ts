@@ -128,10 +128,20 @@ export class ListingsRepo {
       where.push("id IN (SELECT listing_id FROM watch_listings WHERE watch_id = ?)");
       params.push(filters.watchId);
     }
+    // Recherche TOKENISÉE (mots en ET), comme le site : « pixel 8 » doit
+    // retrouver « Pixel 8a », « Pixel 8 Pro »… le LIKE exact en sous-chaîne
+    // cachait des résultats que l'engine avait réellement trouvés.
     if (filters.query) {
-      where.push("(title LIKE ? OR body LIKE ?)");
-      const like = `%${filters.query}%`;
-      params.push(like, like);
+      const tokens = filters.query
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0)
+        .slice(0, 6);
+      for (const token of tokens) {
+        const like = `%${token.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        where.push(`(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')`);
+        params.push(like, like);
+      }
     }
     if (filters.priceMin !== undefined) { where.push("price_cents >= ?"); params.push(filters.priceMin); }
     if (filters.priceMax !== undefined) { where.push("price_cents <= ?"); params.push(filters.priceMax); }
