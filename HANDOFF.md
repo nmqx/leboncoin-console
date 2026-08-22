@@ -507,8 +507,8 @@ f50eeae rafraîchissement automatique du bearer JWT
 d67045b bootstrap: monorepo, serveur local, console web, engine live wreq-js
 ```
 
-Contact opérateur : Telegram @an0ym (il décide ce qui est construit ; la
-priorité 1 pendant une session = ses instructions directes).
+L'opérateur décide ce qui est construit ; ses instructions directes passent
+en priorité pendant une session.
 
 ---
 
