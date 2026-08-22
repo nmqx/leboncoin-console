@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, FlaskConical, RotateCcw, Trash2, X } from "lucide-react";
 import type { Webhook, Delivery } from "@lbc/contracts";
@@ -60,54 +60,76 @@ export default function WebhooksView() {
   const selected = webhooks.find((w) => w.id === selectedId) ?? null;
   const dels: Delivery[] = deliveries.data?.deliveries ?? [];
 
+  useEffect(() => {
+    if (!createOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setCreateOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [createOpen]);
+
   return (
     <>
       <div className="view-head">
         <h1>Webhooks</h1>
-        <span className="muted" style={{ fontSize: 11 }}>outbox SQLite · reprises 1 min → 5 min → 30 min → 2 h → dead-letter + rejeu</span>
+        <span className="muted" style={{ fontSize: 11 }}>outbox SQLite · backoff 1 → 5 → 30 min → 2 h · dead-letter</span>
         <span className="spacer" />
-        <button type="button" className="btn primary" onClick={() => setCreateOpen((v) => !v)}><Plus size={14} />Ajouter</button>
+        <button type="button" className="btn primary" onClick={() => setCreateOpen(true)}><Plus size={14} />Ajouter</button>
       </div>
 
       {createOpen ? (
-        <div className="filters" style={{ background: "var(--bg-2)", alignItems: "flex-end" }}>
-          <label className="field">Type
-            <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as "discord" | "http" })}>
-              <option value="discord">Discord</option>
-              <option value="http">HTTP générique (HMAC)</option>
-            </select>
-          </label>
-          <label className="field" style={{ flex: 1, minWidth: 240 }}>URL
-            <input type="text" placeholder={form.kind === "discord" ? "https://discord.com/api/webhooks/…" : "https://exemple.fr/hook"} value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
-          </label>
-          {form.kind === "http" ? (
-            <label className="field">Secret HMAC
-              <input type="password" placeholder="≥ 16 caractères" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} />
-            </label>
-          ) : null}
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxWidth: 420 }}>
-            {ALL_EVENTS.map((ev) => (
-              <button
-                key={ev}
-                type="button"
-                className={`chip${form.events.includes(ev) ? " accent" : ""}`}
-                style={{ cursor: "pointer" }}
-                onClick={() =>
-                  setForm((f) => ({
-                    ...f,
-                    events: f.events.includes(ev) ? f.events.filter((x) => x !== ev) : [...f.events, ev],
-                  }))
-                }
-              >
-                {ev}
-              </button>
-            ))}
+        <div className="overlay dialog-scrim" onClick={() => setCreateOpen(false)} role="dialog" aria-modal="true" aria-label="Nouveau webhook">
+          <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ width: 640 }}>
+            <header className="dialog-head">
+              <span>Nouveau webhook</span>
+              <button type="button" className="btn subtle icon" onClick={() => setCreateOpen(false)} aria-label="Fermer"><X size={15} /></button>
+            </header>
+            <div className="dialog-body">
+              <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 12, alignItems: "end" }}>
+                <label className="field">Type
+                  <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as "discord" | "http" })}>
+                    <option value="discord">Discord</option>
+                    <option value="http">HTTP (HMAC)</option>
+                  </select>
+                </label>
+                <label className="field">URL
+                  <input type="text" placeholder={form.kind === "discord" ? "https://discord.com/api/webhooks/…" : "https://exemple.fr/hook"} value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+                </label>
+              </div>
+              {form.kind === "http" ? (
+                <label className="field" style={{ marginTop: 12 }}>Secret HMAC
+                  <input type="password" placeholder="≥ 16 caractères" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} />
+                </label>
+              ) : null}
+              <div style={{ marginTop: 14 }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>Événements</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {ALL_EVENTS.map((ev) => (
+                    <button
+                      key={ev}
+                      type="button"
+                      className={`chip${form.events.includes(ev) ? " accent" : ""}`}
+                      style={{ cursor: "pointer" }}
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          events: f.events.includes(ev) ? f.events.filter((x) => x !== ev) : [...f.events, ev],
+                        }))
+                      }
+                    >
+                      {ev}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {formError ? <div className="banner coral" style={{ marginTop: 12 }}>{formError}</div> : null}
+            </div>
+            <footer className="dialog-actions">
+              <button type="button" className="btn subtle" onClick={() => setCreateOpen(false)}>Annuler</button>
+              <button type="button" className="btn primary" disabled={!form.url.trim() || create.isPending} onClick={() => create.mutate()}>Créer</button>
+            </footer>
           </div>
-          <button type="button" className="btn primary" disabled={!form.url.trim() || create.isPending} onClick={() => create.mutate()}>Créer</button>
-          <button type="button" className="btn subtle icon" onClick={() => setCreateOpen(false)} aria-label="Annuler"><X size={14} /></button>
         </div>
       ) : null}
-      {formError ? <div className="banner coral" style={{ margin: "8px 12px 0" }}>{formError}</div> : null}
 
       <div className="view-body" style={{ flexDirection: "column" }}>
         {list.isPending ? <Loading /> :

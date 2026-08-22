@@ -151,9 +151,11 @@ export class ListingsRepo {
     if (filters.category) { where.push("category = ?"); params.push(filters.category); }
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const total = (this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM listings ${whereSql}`, ...params))?.n ?? 0;
+    // Tri DB par date de publication (pas last_seen) pour que le top 10 soit vraiment
+    // les plus récents ; le tri fin en route (localSort) affine selon sort/dir demandés.
     const items = this.db
       .all<ListingRow>(
-        `SELECT * FROM listings ${whereSql} ORDER BY last_seen_at DESC LIMIT ? OFFSET ?`,
+        `SELECT * FROM listings ${whereSql} ORDER BY CASE WHEN published_at IS NULL THEN 1 ELSE 0 END, published_at DESC, last_seen_at DESC LIMIT ? OFFSET ?`,
         ...params, filters.limit, filters.offset
       )
       .map(rowToListing);

@@ -410,16 +410,7 @@ export default function SettingsView() {
           </div>
         </section>
 
-        {/* ------------------------------------------------ rétention */}
-        <section className="panel" style={{ padding: 14 }}>
-          <div className="panel-title" style={{ padding: 0, marginBottom: 10 }}>Rétention & maintenance</div>
-          <div className="grid2">
-            <div><Chip>annonces 180 j</Chip></div>
-            <div><Chip>messages 90 j</Chip></div>
-            <div><Chip>événements, livraisons, logs 30 j</Chip></div>
-            <div><Chip>base SQLite WAL locale</Chip></div>
-          </div>
-        </section>
+
       </div>
     </>
   );

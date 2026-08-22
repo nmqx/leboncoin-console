@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity, Search, Radar, Inbox, Webhook, Settings2, Keyboard, X,
+  Activity, Search, Radar, Eye, Inbox, Webhook, Settings2, Keyboard, X,
 } from "lucide-react";
 import { api } from "./api";
 import { useEvents } from "./events";
@@ -9,6 +9,7 @@ import { countdown } from "./format";
 import { installGlobalKeyboard, activeHotkeys } from "./hotkeys";
 import SearchView from "./features/search/SearchView";
 import WatchesView from "./features/watches/WatchesView";
+import ResultsView from "./features/results/ResultsView";
 import InboxView from "./features/inbox/InboxView";
 import WebhooksView from "./features/webhooks/WebhooksView";
 import SettingsView from "./features/settings/SettingsView";
@@ -16,15 +17,16 @@ import SettingsView from "./features/settings/SettingsView";
 const VIEWS = [
   { id: "search", label: "Recherche", icon: Search, key: "1" },
   { id: "watches", label: "Veilles", icon: Radar, key: "2" },
-  { id: "inbox", label: "Messagerie", icon: Inbox, key: "3" },
-  { id: "webhooks", label: "Webhooks", icon: Webhook, key: "4" },
-  { id: "settings", label: "Système", icon: Settings2, key: "5" },
+  { id: "results", label: "Résultats", icon: Eye, key: "3" },
+  { id: "inbox", label: "Messagerie", icon: Inbox, key: "4" },
+  { id: "webhooks", label: "Webhooks", icon: Webhook, key: "5" },
+  { id: "settings", label: "Système", icon: Settings2, key: "6" },
 ] as const;
 
 type ViewId = (typeof VIEWS)[number]["id"];
 
 function viewFromHash(): ViewId {
-  const h = window.location.hash.replace(/^#\/?/, "");
+  const h = window.location.hash.replace(/^#\/?/, "").split("?")[0] ?? "";
   const found = VIEWS.find((v) => v.id === h);
   return found ? found.id : "search";
 }
@@ -66,7 +68,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // raccourcis fixes 1–5
+  // raccourcis fixes 1–6
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
@@ -111,6 +113,7 @@ export default function App() {
       <div className="main">
         {view === "search" ? <SearchView /> : null}
         {view === "watches" ? <WatchesView /> : null}
+        {view === "results" ? <ResultsView /> : null}
         {view === "inbox" ? <InboxView /> : null}
         {view === "webhooks" ? <WebhooksView /> : null}
         {view === "settings" ? <SettingsView /> : null}
@@ -118,13 +121,10 @@ export default function App() {
 
       <footer className="statusbar">
         <span><span className={`dot ${killSwitch ? "alert" : connected ? "on" : "off"}`} />{killSwitch ? "KILL SWITCH" : status?.mode ?? "…"}</span>
-        <span>planif. {status?.scheduler.running ? countdown(status.scheduler.nextRunAt) : "arrêtée"}</span>
-        <span>{automation ? "automation ON" : "automation OFF"}</span>
-        <span>{status ? `${status.counters.listings} annonces · ${status.counters.watches} veilles · ${status.counters.pendingDeliveries} livraisons` : "…"}</span>
-        {diagnostics?.llmConfigured ? <span className="chip amber">LLM HTTP non chiffré</span> : null}
         {killSwitch ? <span className="chip coral">tout est suspendu</span> : null}
+        <span className="muted">{status?.scheduler.running ? `prochain run ${countdown(status.scheduler.nextRunAt)}` : ""}</span>
         <span className="event-tick">
-          {last ? `${new Date(last.createdAt).toLocaleTimeString("fr-FR")} · ${last.type}` : connected ? "connecté — en attente d'événements" : "flux événements déconnecté"}
+          {!connected ? "flux événements déconnecté" : last ? `${new Date(last.createdAt).toLocaleTimeString("fr-FR")} · ${last.type}` : ""}
         </span>
         <span className="muted">v{status?.version ?? "?"}</span>
       </footer>
@@ -138,7 +138,7 @@ export default function App() {
             </div>
             <div style={{ padding: "0 20px 16px" }}>
               {[
-                { k: "1 – 5", d: "Changer de vue" },
+                { k: "1 – 6", d: "Changer de vue" },
                 { k: "/", d: "Focus recherche" },
                 { k: "j / k", d: "Ligne suivante / précédente" },
                 { k: "Entrée", d: "Ouvrir le détail de la ligne" },

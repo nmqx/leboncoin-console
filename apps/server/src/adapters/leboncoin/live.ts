@@ -9,6 +9,7 @@ import { classifyDataDome } from "./datadome.js";
 import type { EngineRunResult, SearchEngine } from "./engine.js";
 import { AnySolverClient, type DataDomeTaskType } from "../anysolver/client.js";
 import { LlmClient, filterByRelevance } from "../llm/gemini.js";
+import { jwtExpiry } from "../../session.js";
 import { logger } from "../../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -184,10 +185,11 @@ export function buildSearchUrl(spec: SearchSpec, page: number): string {
       p.set(key, String(value));
     }
   }
-  // PIÈGE : tout paramètre `sort=` fait IGNORER `text` côté serveur (flux
-  // générique national renvoyé, 200 OK) — vérifié en live sur sort=date et
-  // sort=time. `order=desc` seul est inoffensif ET chronologique (descendre
-  // en pages : plus vieux). Jamais de `sort=`.
+  // Tri chronologique strict : sort=date + order=desc. Re-mesuré le 22/08/2026 :
+  // le filtre texte s'applique normalement avec sort=date (total ~17,9k vs
+  // ~17,7k sans tri, annonces du jour en tête de page 1). L'ancien piège
+  // « tout paramètre sort= fait ignorer text » n'existe plus côté serveur.
+  p.set("sort", "date");
   p.set("order", "desc");
   // pagination : `page=N` 1-based (vérifié en live : page=2/3 → fenêtres
   // disjointes, 0 chevauchement ; `o` est IGNORÉ côté serveur — chaque
@@ -299,11 +301,32 @@ export class LiveEngine implements SearchEngine {
 
   async run(jobId: string, spec: SearchSpec, correlationId: string): Promise<EngineRunResult> {
     const primary = await this.deps.getProxy();
+    let lastErr: unknown;
     try {
-      return await this.runOnce(jobId, spec, correlationId, primary);
+      return await this.runOnce(jobId, spec, correlationId, primary, true);
     } catch (err) {
-      const code = (err as Error & { code?: string }).code ?? "";
-      // DataDome en direct → unique repli par le proxy stocké (hors politique),
+      lastErr = err;
+      let code = (err as Error & { code?: string }).code ?? "";
+
+      // DataDome avec le profil de session → repli empreinte propre (sans
+      // cookies importés). Mesuré : un luat vieillissant déclenche des 403
+      // sans captcha URL alors que le même fingerprint nu passe.
+      const hasSession = await this.deps
+        .getSessionProfile()
+        .then((s) => s !== null)
+        .catch(() => false);
+      if (code.startsWith("datadome") && hasSession) {
+        this.deps.bus.publish("challenge.failover_clean", { jobId, code, correlationId });
+        logger.warn({ jobId, code }, "DataDome avec profil de session — repli empreinte propre");
+        try {
+          return await this.runOnce(jobId, spec, correlationId, primary, false);
+        } catch (err2) {
+          lastErr = err2;
+          code = (err2 as Error & { code?: string }).code ?? "engine_error";
+        }
+      }
+
+      // Toujours en échec → unique repli par le proxy stocké (hors politique),
       // puis quarantaine si ça échoue encore. Jamais de boucle.
       if (
         primary === null &&
@@ -316,10 +339,16 @@ export class LiveEngine implements SearchEngine {
             jobId, code, correlationId, proxy: `${backup.host}:${backup.port}`,
           });
           logger.warn({ jobId, code }, "DataDome en direct — repli proxy");
-          return await this.runOnce(jobId, spec, correlationId, backup);
+          try {
+            return await this.runOnce(jobId, spec, correlationId, backup, false);
+          } catch (err3) {
+            lastErr = err3;
+            code = (err3 as Error & { code?: string }).code ?? "engine_error";
+            throw Object.assign(new Error(`DataDome : tous les replis épuisés (${code})`), { code });
+          }
         }
       }
-      throw err;
+      throw lastErr;
     }
   }
 
@@ -327,14 +356,19 @@ export class LiveEngine implements SearchEngine {
     jobId: string,
     spec: SearchSpec,
     correlationId: string,
-    proxy: ProxyConfig | null
+    proxy: ProxyConfig | null,
+    useSession: boolean
   ): Promise<EngineRunResult> {
     // Sans texte, /recherche renvoie le flux générique national (catégories
     // mélangées) — ce n'est pas une recherche, on refuse plutôt que polluer.
     if (!spec.query.trim() || spec.query.trim() === "toutes annonces") {
       throw new Error("Requête vide : le flux générique n'est pas scrapé — précisez un texte de recherche");
     }
-    const session = await this.deps.getSessionProfile();
+    // Session importée : cookies JWT expirés exclus (un luat périmé déclenche
+    // un blocage DataDome sec, sans captcha). La recherche est publique — la
+    // session n'apporte que l'empreinte, jamais l'autorisation.
+    const rawSession = await this.deps.getSessionProfile();
+    const session = useSession && rawSession ? freshenSession(rawSession) : null;
     const anysolverKey = await this.deps.getAnysolverKey();
     const transport = new WreqTransport({
       proxy: proxy ?? undefined,
@@ -481,4 +515,30 @@ function medianOf(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/**
+ * Retire les cookies JWT expirés du bundle de session. Un cookie vieillissant
+ * est pire qu'aucun cookie : DataDome bloque sec (403 sans captcha URL) sur
+ * une session périmée alors que la même empreinte sans cookies passe.
+ */
+export function freshenSession<T extends { userAgent: string; cookies: Record<string, string> }>(
+  session: T
+): T {
+  const cookies: Record<string, string> = {};
+  let dropped = false;
+  for (const [name, value] of Object.entries(session.cookies)) {
+    if (!value.includes(".")) {
+      cookies[name] = value;
+      continue;
+    }
+    const exp = jwtExpiry(value);
+    if (exp && exp.getTime() < Date.now()) {
+      dropped = true;
+      continue;
+    }
+    cookies[name] = value;
+  }
+  if (dropped) logger.warn("cookies de session expirés exclus de la recherche");
+  return { ...session, cookies };
 }

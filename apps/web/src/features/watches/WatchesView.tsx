@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Play, Pause, Trash2, Plus, X, Pencil, RefreshCw, Eye } from "lucide-react";
 import type { SearchSpec, Watch } from "@lbc/contracts";
@@ -102,6 +102,51 @@ function formToSpec(f: WatchForm): SearchSpec {
   return spec;
 }
 
+function Segmented<T extends string>({
+  value, options, onChange, label,
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (v: T) => void;
+  label: string;
+}) {
+  return (
+    <div className="segmented-field">
+      <span>{label}</span>
+      <div className="segmented" role="radiogroup" aria-label={label}>
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={value === o.value}
+            className={`segmented-item${value === o.value ? " active" : ""}`}
+            onClick={() => onChange(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CheckRow({
+  checked, onChange, label, title,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  title?: string;
+}) {
+  return (
+    <label className="check-row" title={title}>
+      <span>{label}</span>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  );
+}
+
 function WatchFields({ form, set }: { form: WatchForm; set: (patch: Partial<WatchForm>) => void }) {
   const rangeAttrs = useMemo(() => rangeAttributesForCategory(form.category || undefined), [form.category]);
   return (
@@ -126,20 +171,26 @@ function WatchFields({ form, set }: { form: WatchForm; set: (patch: Partial<Watc
       <label className="field">€ max
         <input className="price" type="number" min={0} value={form.priceMax} onChange={(e) => set({ priceMax: e.target.value })} />
       </label>
-      <label className="field">Vendeur
-        <select value={form.ownerType} onChange={(e) => set({ ownerType: e.target.value as WatchForm["ownerType"] })}>
-          <option value="">Tous</option>
-          <option value="private">Particuliers</option>
-          <option value="pro">Pros</option>
-        </select>
-      </label>
-      <label className="field">Annonce
-        <select value={form.adType} onChange={(e) => set({ adType: e.target.value as WatchForm["adType"] })}>
-          <option value="">Offres & demandes</option>
-          <option value="offer">Offres</option>
-          <option value="demand">Demandes</option>
-        </select>
-      </label>
+      <Segmented
+        label="Vendeur"
+        value={form.ownerType}
+        options={[
+          { value: "", label: "Tous" },
+          { value: "private", label: "Particuliers" },
+          { value: "pro", label: "Pros" },
+        ]}
+        onChange={(v) => set({ ownerType: v })}
+      />
+      <Segmented
+        label="Annonce"
+        value={form.adType}
+        options={[
+          { value: "", label: "Toutes" },
+          { value: "offer", label: "Offres" },
+          { value: "demand", label: "Demandes" },
+        ]}
+        onChange={(v) => set({ adType: v })}
+      />
       <label className="field">Dépt
         <input type="text" style={{ width: 60 }} value={form.department} onChange={(e) => set({ department: e.target.value })} placeholder="69" />
       </label>
@@ -155,24 +206,27 @@ function WatchFields({ form, set }: { form: WatchForm; set: (patch: Partial<Watc
           </span>
         </label>
       ))}
-      <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingTop: 16 }}>
-        <input type="checkbox" checked={form.shippable} onChange={(e) => set({ shippable: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
-        Livrable
-      </label>
-      <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingTop: 16 }}>
-        <input type="checkbox" checked={form.urgent} onChange={(e) => set({ urgent: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
-        Urgent
-      </label>
+      <CheckRow
+        label="Livrable"
+        checked={form.shippable}
+        onChange={(v) => set({ shippable: v })}
+      />
+      <CheckRow
+        label="Urgent"
+        checked={form.urgent}
+        onChange={(v) => set({ urgent: v })}
+      />
       <label className="field" title="Nombre maximum d'annonces récupérées par run — défaut 10 (les plus récentes)">
         Nb max
         <input type="number" min={1} max={1000} style={{ width: 64 }} value={form.maxItems}
           onChange={(e) => set({ maxItems: Math.max(1, Number(e.target.value) || 10) })} />
       </label>
-      <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingTop: 16 }}
-        title="Exclut les faux positifs sémantiques via un appel LLM groupé par run (ex. un jeu « Just Dance - Nintendo Switch » quand tu cherches la console). Clé LLM requise dans Système.">
-        <input type="checkbox" checked={form.llmFilter} onChange={(e) => set({ llmFilter: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
-        Filtre LLM
-      </label>
+      <CheckRow
+        label="Filtre LLM"
+        checked={form.llmFilter}
+        onChange={(v) => set({ llmFilter: v })}
+        title="Exclut les faux positifs sémantiques via un appel LLM groupé par run (ex. un jeu « Just Dance - Nintendo Switch » quand tu cherches la console). Clé LLM requise dans Système."
+      />
       <label className="field">Cadence (min)
         <input type="number" min={1} max={1440} style={{ width: 70 }} value={form.cadenceMinutes}
           onChange={(e) => set({ cadenceMinutes: Math.max(1, Number(e.target.value) || 10) })} />
@@ -187,7 +241,7 @@ function WatchFields({ form, set }: { form: WatchForm; set: (patch: Partial<Watc
 }
 
 function WatchEditor({
-  form, set, title, saveLabel, busy, invalid, onSave, onCancel,
+  form, set, title, saveLabel, busy, invalid, onSave, onCancel, onReset,
 }: {
   form: WatchForm;
   set: (patch: Partial<WatchForm>) => void;
@@ -197,21 +251,43 @@ function WatchEditor({
   invalid?: boolean;
   onSave: () => void;
   onCancel: () => void;
+  onReset?: () => void;
 }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
   return (
-    <section className="panel watch-editor" style={{ padding: 14, margin: "0 0 12px 0" }}>
-      <div className="panel-title" style={{ padding: 0, marginBottom: 12 }}>{title}</div>
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <WatchFields form={form} set={set} />
+    <div className="overlay dialog-scrim" onClick={onCancel} role="dialog" aria-modal="true" aria-label={title}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        <header className="dialog-head">
+          <span>{title}</span>
+          <button type="button" className="btn subtle icon" onClick={onCancel} aria-label="Fermer"><X size={15} /></button>
+        </header>
+        <div className="dialog-body">
+          <div className="dialog-grid">
+            <WatchFields form={form} set={set} />
+          </div>
+          {invalid ? <p className="dialog-note">une requête est obligatoire</p> : null}
+        </div>
+        <footer className="dialog-actions">
+          {onReset ? (
+            <button type="button" className="btn subtle reset" onClick={onReset}>
+              Réinitialiser
+            </button>
+          ) : null}
+          <span className="spacer" />
+          <button type="button" className="btn subtle" onClick={onCancel}>Annuler</button>
+          <button type="button" className="btn primary" disabled={busy || invalid} onClick={onSave}>
+            {busy ? "…" : saveLabel}
+          </button>
+        </footer>
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center" }}>
-        <button type="button" className="btn primary" disabled={busy || invalid} onClick={onSave}>
-          {busy ? "…" : saveLabel}
-        </button>
-        <button type="button" className="btn" onClick={onCancel}>Annuler</button>
-        {invalid ? <span className="muted" style={{ fontSize: 11 }}>une requête est obligatoire</span> : null}
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -264,28 +340,28 @@ export default function WatchesView() {
     },
   });
 
-  function specSummary(w: Watch): string {
-    const s = w.spec;
-    const parts: string[] = [s.query];
-    if (s.categoryIds?.[0]) parts.push(LBC_CATEGORIES[s.categoryIds[0]] ?? `cat ${s.categoryIds[0]}`);
-    if (s.priceCents?.min) parts.push(`≥ ${s.priceCents.min / 100} €`);
-    if (s.priceCents?.max) parts.push(`≤ ${s.priceCents.max / 100} €`);
-    if (s.ownerTypes?.length) parts.push(s.ownerTypes.join("/"));
-    if (s.adTypes?.length === 1 && s.adTypes[0] === "demand") parts.push("demandes");
-    if (s.locations?.departments?.length) parts.push(s.locations.departments.join(","));
-    if (s.shippable) parts.push("livrable");
-    if (s.urgent) parts.push("urgent");
-    for (const [k, v] of Object.entries(s.attributes ?? {})) {
-      if (v && typeof v === "object" && !Array.isArray(v)) {
-        const r = v as { min?: number; max?: number };
-        parts.push(`${k} ${r.min ?? "…"}-${r.max ?? "…"}`);
-      }
+function specSummary(w: Watch): string {
+  const s = w.spec;
+  const parts: string[] = [s.query];
+  if (s.categoryIds?.[0]) parts.push(LBC_CATEGORIES[s.categoryIds[0]] ?? `cat ${s.categoryIds[0]}`);
+  if (s.priceCents?.min) parts.push(`≥ ${s.priceCents.min / 100} €`);
+  if (s.priceCents?.max) parts.push(`≤ ${s.priceCents.max / 100} €`);
+  if (s.ownerTypes?.length) parts.push(s.ownerTypes.join("/"));
+  if (s.adTypes?.length === 1 && s.adTypes[0] === "demand") parts.push("demandes");
+  if (s.locations?.departments?.length) parts.push(s.locations.departments.join(","));
+  if (s.shippable) parts.push("livrable");
+  if (s.urgent) parts.push("urgent");
+  for (const [k, v] of Object.entries(s.attributes ?? {})) {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const r = v as { min?: number; max?: number };
+      parts.push(`${k} ${r.min ?? "…"}-${r.max ?? "…"}`);
     }
-    if (s.dealThreshold !== undefined) parts.push(`top ${Math.round(s.dealThreshold * 100)} %`);
-    if (s.llmFilter) parts.push("filtre LLM");
-    parts.push(`max ${s.maxItems ?? 10}`);
-    return parts.join(" · ");
   }
+  if (s.dealThreshold !== undefined) parts.push(`top ${Math.round(s.dealThreshold * 100)} %`);
+  if (s.llmFilter) parts.push("filtre LLM");
+  parts.push(`max ${s.maxItems ?? 10}`);
+  return parts.join(" · ");
+}
 
   return (
     <>
@@ -309,6 +385,7 @@ export default function WatchesView() {
             invalid={!createForm.query.trim()}
             onSave={() => create.mutate()}
             onCancel={() => setCreateOpen(false)}
+            onReset={() => setCreateForm(EMPTY_FORM)}
           />
         ) : null}
 
@@ -341,13 +418,22 @@ export default function WatchesView() {
                   <th style={{ width: 110 }}>Dernier run</th>
                   <th style={{ width: 110 }}>Statut</th>
                   <th style={{ width: 150 }}>Résultats</th>
-                  <th style={{ width: 210 }}></th>
+                  <th style={{ width: 90 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {list.data!.watches.map((w) => (
-                  <tr key={w.id}>
-                    <td><Toggle on={w.enabled} label={`Activer ${w.name}`} onChange={(enabled) => toggle.mutate({ id: w.id, enabled })} /></td>
+                  <tr
+                    key={w.id}
+                    onClick={() => {
+                      setCreateOpen(false);
+                      setEditingId(w.id);
+                      setEditForm(specToForm(w));
+                    }}
+                    style={{ cursor: "pointer" }}
+                    aria-label={`Modifier ${w.name}`}
+                  >
+                    <td onClick={(e) => e.stopPropagation()}><Toggle on={w.enabled} label={`Activer ${w.name}`} onChange={(enabled) => toggle.mutate({ id: w.id, enabled })} /></td>
                     <td title={w.name} style={{ maxWidth: 200 }}><strong>{w.name}</strong></td>
                     <td className="muted" title={specSummary(w)} style={{ maxWidth: 340 }}>{specSummary(w)}</td>
                     <td className="num">{w.cadenceMinutes} min</td>
@@ -358,20 +444,19 @@ export default function WatchesView() {
                        w.lastStatus ? <Chip cls="amber">{w.lastStatus}</Chip> :
                        <span className="muted">jamais lancée</span>}
                     </td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         className="btn subtle"
-                        title="Voir les résultats de cette veille dans Recherche"
+                        title="Voir les résultats de cette veille dans l'onglet Résultats"
                         onClick={() => {
-                          window.sessionStorage.setItem("lbc.watchFilter", String(w.id));
-                          window.location.hash = "#/search";
+                          window.location.hash = `#/results?watch=${w.id}`;
                         }}
                       >
                         <Eye size={13} />résultats{typeof (w as WatchWithCount).listingCount === "number" ? ` · ${(w as WatchWithCount).listingCount}` : ""}
                       </button>
                     </td>
-                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         className="btn primary icon"
@@ -383,13 +468,6 @@ export default function WatchesView() {
                         {runningId === w.id
                           ? <RefreshCw size={14} className="spin" />
                           : <Play size={14} />}
-                      </button>
-                      <button type="button" className="btn" onClick={() => {
-                        setCreateOpen(false);
-                        setEditingId(editingId === w.id ? null : w.id);
-                        setEditForm(specToForm(w));
-                      }}>
-                        <Pencil size={13} />modifier
                       </button>
                       <button type="button" className="btn subtle icon" title={w.enabled ? "Désactiver" : "Activer"} onClick={() => toggle.mutate({ id: w.id, enabled: !w.enabled })}>
                         {w.enabled ? <Pause size={14} /> : <Play size={14} />}

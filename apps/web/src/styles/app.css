@@ -154,10 +154,10 @@ button, input, select, textarea {
   color: var(--text-2);
   white-space: nowrap;
 }
-.chip.accent { color: var(--accent-text); border-color: var(--accent-dim); background: color-mix(in oklch, var(--accent-dim) 45%, transparent); }
-.chip.amber { color: var(--amber); border-color: var(--amber-dim); background: color-mix(in oklch, var(--amber-dim) 40%, transparent); }
-.chip.coral { color: var(--coral); border-color: var(--coral-dim); background: color-mix(in oklch, var(--coral-dim) 40%, transparent); }
-.chip.info { color: var(--info); border-color: var(--info-dim); background: color-mix(in oklch, var(--info-dim) 40%, transparent); }
+.chip.accent { color: var(--accent-text); border-color: color-mix(in oklch, var(--accent-dim) 80%, transparent); background: color-mix(in oklch, var(--accent-dim) 26%, transparent); }
+.chip.amber { color: var(--amber); border-color: color-mix(in oklch, var(--amber-dim) 80%, transparent); background: color-mix(in oklch, var(--amber-dim) 22%, transparent); }
+.chip.coral { color: var(--coral); border-color: color-mix(in oklch, var(--coral-dim) 80%, transparent); background: color-mix(in oklch, var(--coral-dim) 22%, transparent); }
+.chip.info { color: var(--info); border-color: color-mix(in oklch, var(--info-dim) 80%, transparent); background: color-mix(in oklch, var(--info-dim) 22%, transparent); }
 
 /* ---------------------------------------------------------------- panels */
 .panel {
@@ -202,14 +202,14 @@ label.field {
   padding: 4px 12px;
   border-radius: var(--radius);
   border: 1px solid var(--line-strong);
-  background: var(--bg-2);
+  background: transparent;
   color: var(--text-1);
   cursor: pointer;
   font-size: 12px;
   white-space: nowrap;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.btn:hover { background: color-mix(in oklch, var(--bg-2) 70%, var(--bg-inset)); border-color: var(--text-3); }
+.btn:hover { background: var(--bg-2); border-color: var(--line-strong); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn.primary {
   background: var(--accent-dim);
@@ -263,7 +263,7 @@ table.data thead th {
   font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.05em;
   color: var(--text-3);
   padding: 0 10px;
   height: 30px;
@@ -418,21 +418,225 @@ table.data tbody tr.selected td:first-child { box-shadow: inset 2px 0 0 var(--ac
   .filters { flex-wrap: wrap; }
 }
 
-/* -------------------------------------------------------------- filters */
+/* -------------------------------------------------------------- filters — two-row pro bar */
 .filters {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--bg-1);
   flex-shrink: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
 }
-.filters input[type="text"] { min-width: 220px; }
-.filters .price { width: 90px; }
+.filters-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.filters-row input[type="text"].search-main {
+  flex: 1.6;
+  min-width: 280px;
+  height: 34px;
+}
+.filters .price { width: 96px; height: 34px; }
+.filters .field-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
 .filters .sep { width: 1px; height: 20px; background: var(--line); flex-shrink: 0; }
+
+/* ------------------------------------------------------------- résultats */
+.results-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-0);
+  flex-shrink: 0;
+  font-size: 11.5px;
+}
+.meta-line { font-size: 11px; display: inline-flex; align-items: center; gap: 5px; }
+.table-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.row-link { color: var(--text-3); display: inline-flex; padding: 3px; }
+.row-link:hover { color: var(--accent); text-decoration: none; }
+
+/* --------------------------------------------------- dialog (matériel) */
+.overlay.dialog-scrim {
+  background: color-mix(in oklch, var(--bg-0) 78%, transparent);
+}
+.dialog {
+  width: 720px;
+  max-width: 94vw;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  /* plat, sans ombre portée décorative — DESIGN.md */
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.dialog-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+}
+.dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px 14px;
+  align-items: end;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.dialog-note {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--coral);
+}
+@media (prefers-reduced-motion: reduce) {
+  .overlay.dialog-scrim, .dialog { animation: none; }
+
+}
+
+/* champs du dialog : hauts, fond enfoncé */
+.dialog-body input[type="text"],
+.dialog-body input[type="number"] {
+  height: 34px;
+  padding: 6px 10px;
+}
+.dialog-body select {
+  height: 34px;
+  padding: 6px 26px 6px 10px;
+}
+.dialog-actions .spacer { flex: 1; }
+.btn.reset { color: var(--text-3); }
+.btn.reset:hover { color: var(--text-1); }
+
+/* contrôles segmentés : pilule active en accent (style lzt) — plat, sans shader */
+.segmented-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.segmented {
+  display: inline-flex;
+  align-items: stretch;
+  height: 34px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px;
+  gap: 2px;
+}
+.segmented-item {
+  padding: 0 10px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.segmented-item:hover { color: var(--text-1); }
+.segmented-item.active {
+  background: var(--accent-dim);
+  color: var(--accent-text);
+}
+
+/* case à cocher en rangée pleine largeur */
+.check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.check-row:hover { border-color: var(--line-strong); }
+/* case à cocher unifiée — boîte enfoncée, coche clip-path animée */
+input[type="checkbox"] {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--bg-inset);
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-content: center;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+input[type="checkbox"]:hover {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 3px color-mix(in oklch, var(--accent) 12%, transparent);
+}
+input[type="checkbox"]:checked {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+input[type="checkbox"]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+input[type="checkbox"]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  transform: scale(0);
+  transition: transform 130ms var(--ease);
+  clip-path: polygon(14% 46%, 0 62%, 38% 100%, 100% 18%, 85% 5%, 37% 70%);
+  background: var(--accent-text);
+}
+input[type="checkbox"]:checked::before {
+  transform: scale(1);
+}
 
 /* ------------------------------------------------------------ inbox */
 .inbox-list {
@@ -441,6 +645,17 @@ table.data tbody tr.selected td:first-child { box-shadow: inset 2px 0 0 var(--ac
   border-right: 1px solid var(--line);
   overflow-y: auto;
   background: var(--bg-1);
+}
+.inbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .inbox-item {
   padding: 10px 14px 10px 16px;
@@ -499,9 +714,10 @@ table.data tbody tr.selected td:first-child { box-shadow: inset 2px 0 0 var(--ac
 .composer textarea { flex: 1; resize: none; min-height: 58px; max-height: 160px; border-radius: 8px; }
 
 /* ------------------------------------------------------------ settings */
-.settings { padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 14px; max-width: 860px; }
+.settings { padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; max-width: 860px; }
 .settings .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .settings .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.settings .panel { padding: 12px; }
 .banner {
   display: flex;
   gap: 8px;

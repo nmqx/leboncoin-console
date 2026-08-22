@@ -85,36 +85,51 @@ export default function InboxView() {
 
   return (
     <>
-      <div className="view-head">
+      <div className="view-head" style={{ gap: 10 }}>
         <h1>Messagerie</h1>
-        {killSwitch ? <Chip cls="coral">kill switch — envois bloqués</Chip> : null}
-        <span className="muted" style={{ fontSize: 11 }}>polling 10 min · dédupliqué par message · jamais de premier contact automatique</span>
+        {killSwitch ? <Chip cls="coral">kill switch</Chip> : null}
         <span className="spacer" />
         <button
           type="button"
           className="btn"
           disabled={sync.isPending || killSwitch}
           onClick={() => sync.mutate()}
-          title="Synchroniser l'inbox réelle (rejeu du contrat capturé, routing messagerie)"
+          title="Rejouer le contrat capturé"
         >
           <RefreshCw size={13} className={sync.isPending ? "spin" : undefined} />
-          {sync.isPending ? "Sync…" : "Synchroniser"}
-          {sync.isSuccess ? ` · ${sync.data?.synced ?? 0}` : ""}
+          Sync{sync.isSuccess ? ` · ${sync.data?.synced ?? 0}` : ""}
         </button>
-        {sync.isError ? (
-          <Chip cls="coral">{sync.error instanceof ApiError ? sync.error.code : "erreur sync"}</Chip>
-        ) : null}
-        <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--text-2)" }}>
-          <Toggle on={automation} label="Automation des réponses" onChange={(v) => setAutomation.mutate(v)} />
-          Réponses automatiques {automation ? "activées" : "désactivées"}
+        {sync.isError ? <Chip cls="coral">{sync.error instanceof ApiError ? sync.error.code : "sync"}</Chip> : null}
+        <span className="sep" />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--text-2)" }} title="10/h par conv · 100/jour · 20s debounce · jamais de premier contact">
+          <Toggle on={automation} label="Auto-réponses" onChange={(v) => setAutomation.mutate(v)} />
+          Auto {automation ? "on" : "off"}
         </label>
       </div>
 
       <div className="view-body">
         <div className="inbox-list" role="list">
+          <div className="inbox-head">
+            <span className="muted" style={{ fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              {list.isPending ? "…" : `${conversations.length} fils`}
+              {conversations.filter((c) => c.unreadCount > 0).length ? ` · ${conversations.filter((c) => c.unreadCount > 0).length} non lu` : ""}
+            </span>
+            <span className="muted" style={{ fontSize: 10, fontFamily: "var(--font-mono)" }}>{conversations.length ? `${timeAgo(conversations[0]!.lastMessageAt)}` : ""}</span>
+          </div>
           {list.isPending ? <Loading /> :
            list.isError ? <ErrorState error={{ code: "Erreur", message: (list.error as Error).message }} /> :
-           conversations.length === 0 ? <EmptyState title="Aucune conversation" /> :
+           conversations.length === 0 ? (
+             <div className="state" style={{ padding: "28px 16px", gap: 10 }}>
+               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)" }}>Boîte vide</div>
+               <div className="hint" style={{ textAlign: "center", maxWidth: 300, lineHeight: 1.5 }}>
+                 Importez une session dans <strong>Système</strong> puis <strong>Synchroniser</strong> pour charger l'inbox réelle. Les nouveaux messages arrivent via le flux SSE.
+               </div>
+               <button type="button" className="btn" disabled={sync.isPending} onClick={() => sync.mutate()}>
+                 <RefreshCw size={13} className={sync.isPending ? "spin" : undefined} />Synchroniser maintenant
+               </button>
+               <span className="muted" style={{ fontSize: 10.5 }}>Jamais de premier contact automatique — l'automation ne répond qu'aux conversations existantes.</span>
+             </div>
+           ) :
            conversations.map((c) => (
             <div
               key={c.id}

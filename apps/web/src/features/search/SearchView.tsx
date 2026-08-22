@@ -44,6 +44,16 @@ const DEFAULT_FILTERS: ActiveFilters = {
   dir: "desc",
 };
 
+function MiniSegmented<T extends string>({ value, options, onChange }: { value: T; options: Array<{ value: T; label: string }>; onChange: (v: T) => void }) {
+  return (
+    <div className="segmented" style={{ height: 28 }}>
+      {options.map((o) => (
+        <button key={o.value} type="button" className={`segmented-item${value === o.value ? " active" : ""}`} style={{ padding: "0 8px", fontSize: 11 }} onClick={() => onChange(o.value)}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
 export function toSpec(f: ActiveFilters): Record<string, unknown> {
   const spec: Record<string, unknown> = { query: f.query.trim() || "toutes annonces", maxItems: 200 };
   if (f.priceMin) spec.priceCents = { ...(spec.priceCents as object), min: Math.round(Number(f.priceMin) * 100) };
@@ -181,7 +191,6 @@ export default function SearchView() {
                   : [...ids, l.id]
             )
           }
-          style={{ accentColor: "var(--accent)" }}
         />
       ),
     },
@@ -275,102 +284,90 @@ export default function SearchView() {
       ) : null}
 
       <div className="filters">
-        <input
-          ref={queryRef}
-          type="text"
-          data-autofocus
-          placeholder="Rechercher…  (/)"
-          value={filters.query}
-          onChange={(e) => setFilters({ ...filters, query: e.target.value })}
-          onKeyDown={(e) => e.key === "Enter" && apply(filters)}
-        />
-        <input className="price" type="number" min={0} placeholder="€ min" value={filters.priceMin} onChange={(e) => set({ priceMin: e.target.value })} aria-label="Prix minimum" />
-        <input className="price" type="number" min={0} placeholder="€ max" value={filters.priceMax} onChange={(e) => set({ priceMax: e.target.value })} aria-label="Prix maximum" />
-        <select value={filters.ownerType} onChange={(e) => set({ ownerType: e.target.value as ActiveFilters["ownerType"] })} aria-label="Type de vendeur">
-          <option value="">Tous vendeurs</option>
-          <option value="private">Particuliers</option>
-          <option value="pro">Pros</option>
-        </select>
-        <select value={filters.category} onChange={(e) => set({ category: e.target.value, attrRanges: {} })} aria-label="Catégorie" title="Catégorie Leboncoin">
-          <option value="">Toutes catégories</option>
-          {Object.entries(LBC_CATEGORIES).map(([id, name]) => (
-            <option key={id} value={id}>{name}</option>
+        <div className="filters-row">
+          <input
+            ref={queryRef}
+            type="text"
+            data-autofocus
+            className="search-main"
+            placeholder="Rechercher…  (/ puis Entrée)"
+            value={filters.query}
+            onChange={(e) => setFilters({ ...filters, query: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && apply(filters)}
+          />
+          <input className="price" type="number" min={0} placeholder="€ min" value={filters.priceMin} onChange={(e) => set({ priceMin: e.target.value })} aria-label="Prix minimum" />
+          <input className="price" type="number" min={0} placeholder="€ max" value={filters.priceMax} onChange={(e) => set({ priceMax: e.target.value })} aria-label="Prix maximum" />
+          <select value={filters.category} onChange={(e) => set({ category: e.target.value, attrRanges: {} })} aria-label="Catégorie" title="Catégorie Leboncoin" style={{ height: 34 }}>
+            <option value="">Catégorie</option>
+            {Object.entries(LBC_CATEGORIES).map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
+          </select>
+          <input type="text" placeholder="Dépt" style={{ width: 64, height: 34 }} value={filters.department} onChange={(e) => set({ department: e.target.value })} aria-label="Département" />
+          <select
+            value={watchFilter}
+            onChange={(e) => setWatch(e.target.value ? Number(e.target.value) : "")}
+            aria-label="Source"
+            title="Filtrer par veille — Leboncoin direct par défaut"
+            style={{ height: 34, minWidth: 140 }}
+          >
+            <option value="">Leboncoin direct</option>
+            {(watchesQuery.data?.watches ?? []).map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+          <select value={filters.sort} onChange={(e) => set({ sort: e.target.value as ActiveFilters["sort"] })} aria-label="Tri" style={{ height: 34 }}>
+            <option value="publishedAt">Plus récents</option>
+            <option value="price">Prix</option>
+            <option value="relevance">Pertinence</option>
+          </select>
+          <button
+            type="button"
+            className="btn subtle icon"
+            title={filters.dir === "asc" ? "Croissant" : "Décroissant"}
+            onClick={() => set({ dir: filters.dir === "asc" ? "desc" : "asc" })}
+            style={{ height: 28 }}
+          >
+            {filters.dir === "asc" ? "↑" : "↓"}
+          </button>
+          <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>{rows.length} / {list.data?.total ?? 0}</span>
+        </div>
+        <div className="filters-row">
+          <MiniSegmented value={filters.ownerType} onChange={(v) => set({ ownerType: v as ActiveFilters["ownerType"] })} options={[{ value: "", label: "Tous" }, { value: "private", label: "Part." }, { value: "pro", label: "Pro" }]} />
+          <MiniSegmented value={filters.adType} onChange={(v) => set({ adType: v as ActiveFilters["adType"] })} options={[{ value: "", label: "Tous types" }, { value: "offer", label: "Offres" }, { value: "demand", label: "Demandes" }]} />
+          {rangeAttrs.map((a) => (
+            <span key={a.key} style={{ display: "inline-flex", gap: 4, alignItems: "center" }} title={a.label}>
+              <input
+                type="number"
+                className="price"
+                placeholder={`${a.label} min`}
+                aria-label={`${a.label} min`}
+                value={filters.attrRanges[a.key]?.min ?? ""}
+                onChange={(e) => set({ attrRanges: { ...filters.attrRanges, [a.key]: { min: e.target.value, max: filters.attrRanges[a.key]?.max ?? "" } } })}
+                style={{ height: 28 }}
+              />
+              <input
+                type="number"
+                className="price"
+                placeholder="max"
+                aria-label={`${a.label} max`}
+                value={filters.attrRanges[a.key]?.max ?? ""}
+                onChange={(e) => set({ attrRanges: { ...filters.attrRanges, [a.key]: { min: filters.attrRanges[a.key]?.min ?? "", max: e.target.value } } })}
+                style={{ height: 28 }}
+              />
+            </span>
           ))}
-        </select>
-        <select value={filters.adType} onChange={(e) => set({ adType: e.target.value as ActiveFilters["adType"] })} aria-label="Type d'annonce">
-          <option value="">Offres & demandes</option>
-          <option value="offer">Offres</option>
-          <option value="demand">Demandes</option>
-        </select>
-        {rangeAttrs.map((a) => (
-          <span key={a.key} style={{ display: "inline-flex", gap: 4, alignItems: "center" }} title={a.label}>
-            <input
-              type="number"
-              className="price"
-              placeholder={`${a.label} min`}
-              aria-label={`${a.label} min`}
-              value={filters.attrRanges[a.key]?.min ?? ""}
-              onChange={(e) => set({ attrRanges: { ...filters.attrRanges, [a.key]: { min: e.target.value, max: filters.attrRanges[a.key]?.max ?? "" } } })}
-            />
-            <input
-              type="number"
-              className="price"
-              placeholder="max"
-              aria-label={`${a.label} max`}
-              value={filters.attrRanges[a.key]?.max ?? ""}
-              onChange={(e) => set({ attrRanges: { ...filters.attrRanges, [a.key]: { min: filters.attrRanges[a.key]?.min ?? "", max: e.target.value } } })}
-            />
-          </span>
-        ))}
-        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-2)" }}>
-          <input type="checkbox" checked={filters.urgent} onChange={(e) => set({ urgent: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
-          Urgent
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-2)" }}>
-          <input type="checkbox" checked={filters.shippable} onChange={(e) => set({ shippable: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
-          Livrable
-        </label>
-        <input type="text" placeholder="Dépt (69)" style={{ width: 80 }} value={filters.department} onChange={(e) => set({ department: e.target.value })} aria-label="Département" />
-        <span className="sep" />
-        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-2)" }} title="Exclut les faux positifs sémantiques (jeu ≠ console, accessoire ≠ appareil) via un appel LLM groupé — clé LLM requise">
-          <input type="checkbox" checked={filters.llmFilter} onChange={(e) => set({ llmFilter: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
-          Filtre LLM
-        </label>
-        <label className="field" title="Nombre max d'annonces récupérées par run — défaut 10">
-          Nb max
-          <input type="number" min={1} max={1000} style={{ width: 64 }} value={filters.maxItems}
-            onChange={(e) => set({ maxItems: Math.max(1, Number(e.target.value) || 10) })} />
-        </label>
-        <span className="sep" />
-        <select
-          value={watchFilter}
-          onChange={(e) => setWatch(e.target.value ? Number(e.target.value) : "")}
-          aria-label="Veille"
-          title="N'afficher que les résultats d'une veille (sans relancer de recherche)"
-        >
-          <option value="">Toutes sources</option>
-          {(watchesQuery.data?.watches ?? []).map((w) => (
-            <option key={w.id} value={w.id}>
-              Veille · {w.name}
-            </option>
-          ))}
-        </select>
-        <select value={filters.sort} onChange={(e) => set({ sort: e.target.value as ActiveFilters["sort"] })} aria-label="Tri">
-          <option value="publishedAt">Nouveauté</option>
-          <option value="price">Prix</option>
-          <option value="relevance">Pertinence</option>
-          <option value="distance">Distance</option>
-        </select>
-        <button
-          type="button"
-          className="btn subtle icon"
-          title={filters.dir === "asc" ? "Croissant" : "Décroissant"}
-          onClick={() => set({ dir: filters.dir === "asc" ? "desc" : "asc" })}
-        >
-          {filters.dir === "asc" ? "↑" : "↓"}
-        </button>
-        <span className="spacer" style={{ flex: 1 }} />
-        <span className="muted" style={{ fontSize: 11 }}>{rows.length} / {list.data?.total ?? 0} lignes</span>
+          <label className="field-compact"><input type="checkbox" checked={filters.urgent} onChange={(e) => set({ urgent: e.target.checked })} />Urgent</label>
+          <label className="field-compact"><input type="checkbox" checked={filters.shippable} onChange={(e) => set({ shippable: e.target.checked })} />Livrable</label>
+          <label className="field-compact" title="Filtre sémantique LLM — clé requise"><input type="checkbox" checked={filters.llmFilter} onChange={(e) => set({ llmFilter: e.target.checked })} />LLM</label>
+          <span className="sep" />
+          <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11 }}>Nb max
+            <input type="number" min={1} max={1000} style={{ width: 56, height: 28 }} value={filters.maxItems}
+              onChange={(e) => set({ maxItems: Math.max(1, Number(e.target.value) || 10) })} />
+          </label>
+        </div>
       </div>
 
       {compareIds.length >= 2 ? (

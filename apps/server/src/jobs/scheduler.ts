@@ -10,10 +10,38 @@ export interface SchedulerHandle {
   runNow(): Promise<void>;
 }
 
+/** Granularité du réveil : une veille part au plus tard TICK_MS après son échéance. */
+const TICK_MS = 15_000;
+/** Plafond dur par job de veille : un moteur bloqué ne doit pas arrêter la file. */
+const WATCH_TIMEOUT_MS = 180_000;
+/** Plafond dur du passage messagerie : un sync bloqué ne doit pas geler le planificateur. */
+const MESSAGING_TIMEOUT_MS = 120_000;
+
 /**
- * Planificateur : toutes les cadenceMinutes + jitter [0, jitterMaxSeconds].
- * Chaque passage exécute les veilles actives une à une. Un job qui échoue est
- * mis en quarantaine avec diagnostic — jamais converti en liste vide.
+ * Rejette si la promesse n'est pas réglée dans le délai. Un appel réseau qui
+ * ne répond jamais sinon figerait `running` à true pour toujours.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} : timeout ${ms} ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+
+/**
+ * Planificateur par veille : chacune respecte SA cadenceMinutes + jitter
+ * [0, jitterMaxSeconds]. Un job qui échoue est mis en quarantaine avec
+ * diagnostic — jamais converti en liste vide. La messagerie (sync + réponses
+ * auto) garde la cadence globale historique.
  */
 export function startScheduler(
   cfg: AppConfig,
@@ -24,17 +52,17 @@ export function startScheduler(
 ): SchedulerHandle {
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
-  let nextRun: Date | null = null;
   let running = false;
 
-  const schedule = () => {
+  /** Prochaine échéance par veille (epoch ms). Absente = due immédiatement. */
+  const nextDue = new Map<number, number>();
+  let messagingDue = Date.now(); // premier passage immédiat au démarrage
+
+  const jitterMs = () => Math.floor(Math.random() * cfg.scheduler.jitterMaxSeconds * 1000);
+
+  const scheduleNext = () => {
     if (stopped) return;
-    const jitterMs = Math.floor(Math.random() * cfg.scheduler.jitterMaxSeconds * 1000);
-    const delayMs = cfg.scheduler.cadenceMinutes * 60_000 + jitterMs;
-    nextRun = new Date(Date.now() + delayMs);
-    timer = setTimeout(() => {
-      void tick();
-    }, delayMs);
+    timer = setTimeout(() => void tick(), TICK_MS);
   };
 
   const runWatch = async (watchId: number, name: string, spec: Parameters<SearchEngine["run"]>[1]) => {
@@ -49,7 +77,7 @@ export function startScheduler(
         repos.watches.markRun(watchId, "quarantined");
         return;
       }
-      const result = await engine.run(jobId, spec, jobId);
+      const result = await withTimeout(engine.run(jobId, spec, jobId), WATCH_TIMEOUT_MS, `veille ${watchId}`);
       repos.watches.linkListings(watchId, result.listingIds);
       repos.jobs.finish(jobId, "completed", {
         pageCount: result.pageCount,
@@ -83,35 +111,58 @@ export function startScheduler(
     running = true;
     try {
       const watches = repos.watches.list().filter((w) => w.enabled);
+      const alive = new Set(watches.map((w) => w.id));
+      for (const id of [...nextDue.keys()]) {
+        if (!alive.has(id)) nextDue.delete(id); // veille supprimée/désactivée
+      }
       for (const w of watches) {
         if (stopped) break;
+        const due = nextDue.get(w.id) ?? 0;
+        if (due > Date.now()) continue;
         await runWatch(w.id, w.name, w.spec);
+        nextDue.set(w.id, Date.now() + w.cadenceMinutes * 60_000 + jitterMs());
       }
-      // messagerie : sync inbox + réponses automatiques (jamais si kill switch)
-      if (onTick && repos.settings.get("kill_switch") !== "1") {
-        try {
-          await onTick();
-        } catch (err) {
-          logger.warn({ err: (err as Error).message }, "tick messagerie échoué");
+      // messagerie : sync inbox + réponses automatiques — sa propre horloge,
+      // avancée même si l'exécution est sautée (kill switch) pour ne pas
+      // laisser un compte à rebours collé au passé. Plafond dur : un sync
+      // bloqué ne doit jamais geler la boucle.
+      if (onTick && !stopped && messagingDue <= Date.now()) {
+        messagingDue = Date.now() + cfg.scheduler.cadenceMinutes * 60_000 + jitterMs();
+        if (repos.settings.get("kill_switch") !== "1") {
+          try {
+            await withTimeout(onTick(), MESSAGING_TIMEOUT_MS, "messagerie");
+          } catch (err) {
+            logger.warn({ err: (err as Error).message }, "tick messagerie échoué");
+          }
         }
       }
     } finally {
       running = false;
-      schedule();
+      scheduleNext();
     }
   };
 
-  void tick(); // premier passage immédiat au démarrage
+  // Premier passage immédiat : sans cet appel, aucun timer n'est armé (le
+  // setTimeout ne vit que dans le finally de tick) et le planificateur
+  // reste idle pour toujours — veilles créées jamais exécutées.
+  void tick();
 
   return {
     stop() {
       stopped = true;
       if (timer) clearTimeout(timer);
-      nextRun = null;
+      nextDue.clear();
     },
-    nextRunAt: () => nextRun,
+    nextRunAt: () => {
+      const soonest = Math.min(
+        ...[...nextDue.values(), messagingDue]
+      );
+      return Number.isFinite(soonest) ? new Date(soonest) : null;
+    },
     runNow: async () => {
       if (running) return;
+      for (const id of nextDue.keys()) nextDue.set(id, 0);
+      messagingDue = 0;
       if (timer) clearTimeout(timer);
       await tick();
     },
