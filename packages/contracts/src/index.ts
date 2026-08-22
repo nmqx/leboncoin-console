@@ -40,9 +40,11 @@ export const SearchSpecSchema = z.object({
   dealThreshold: z.number().min(0).max(0.95).optional(),
   /** Anti-faux positifs déterministes : exclut ≤ 1 € et échange/troc/don. */
   filterJunk: z.boolean().default(true),
-  /** Filtre LLM des faux positifs sémantiques (ex. un jeu au lieu de la
-   *  console cherchée) — un seul appel groupé par run, clé LLM requise. */
-  llmFilter: z.boolean().optional(),
+  /** Filtre LLM des faux positifs sémantiques (jeu ≠ console, coque ≠
+   *  téléphone) — un seul appel groupé par run. Défaut ON : les accessoires
+   *  faussent à la fois les résultats et la médiane des % bonne affaire.
+   *  Sans clé LLM configurée, le filtre est simplement sauté (jamais bloquant). */
+  llmFilter: z.boolean().default(true),
   localSort: z
     .array(
       z.object({

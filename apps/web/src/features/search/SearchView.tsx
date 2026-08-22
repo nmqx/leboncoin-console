@@ -39,7 +39,7 @@ const DEFAULT_FILTERS: ActiveFilters = {
   adType: "",
   attrRanges: {},
   maxItems: 10,
-  llmFilter: false,
+  llmFilter: true,
   sort: "publishedAt",
   dir: "desc",
 };
@@ -55,7 +55,7 @@ export function toSpec(f: ActiveFilters): Record<string, unknown> {
   if (f.adType) spec.adTypes = [f.adType];
   if (f.category) spec.categoryIds = [f.category];
   spec.maxItems = Math.max(1, Math.min(1000, f.maxItems || 10));
-  if (f.llmFilter) spec.llmFilter = true;
+  if (f.llmFilter === false) spec.llmFilter = false; // défaut contrat: true — décoché doit survivre au parse
   const attrs: Record<string, unknown> = {};
   for (const [key, r] of Object.entries(f.attrRanges)) {
     const min = r.min !== "" ? Number(r.min) : undefined;

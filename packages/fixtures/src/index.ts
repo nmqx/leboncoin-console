@@ -301,6 +301,7 @@ export const fixtureWatch: Watch = {
     ownerTypes: ["private"],
     maxItems: 200,
     filterJunk: true,
+    llmFilter: false,
   },
   enabled: true,
   cadenceMinutes: 10,

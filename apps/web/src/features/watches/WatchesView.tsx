@@ -45,7 +45,7 @@ const EMPTY_FORM: WatchForm = {
   adType: "",
   attrRanges: {},
   maxItems: 10,
-  llmFilter: false,
+  llmFilter: true,
   cadenceMinutes: 10,
   dealThreshold: "",
 };
@@ -77,7 +77,7 @@ function specToForm(w: Watch): WatchForm {
 }
 
 function formToSpec(f: WatchForm): SearchSpec {
-  const spec: SearchSpec = { query: f.query.trim() || "toutes annonces", maxItems: 200, filterJunk: true };
+  const spec: SearchSpec = { query: f.query.trim() || "toutes annonces", maxItems: 200, filterJunk: true, llmFilter: f.llmFilter };
   if (f.query.trim()) spec.query = f.query.trim();
   if (f.priceMin) spec.priceCents = { ...(spec.priceCents ?? {}), min: Math.round(Number(f.priceMin) * 100) };
   if (f.priceMax) spec.priceCents = { ...(spec.priceCents ?? {}), max: Math.round(Number(f.priceMax) * 100) };
@@ -88,7 +88,6 @@ function formToSpec(f: WatchForm): SearchSpec {
   if (f.adType) spec.adTypes = [f.adType];
   if (f.category) spec.categoryIds = [f.category];
   spec.maxItems = Math.max(1, Math.min(1000, f.maxItems || 10));
-  if (f.llmFilter) spec.llmFilter = true;
   const attrs: Record<string, unknown> = {};
   for (const [key, r] of Object.entries(f.attrRanges)) {
     const min = r.min !== "" ? Number(r.min) : undefined;

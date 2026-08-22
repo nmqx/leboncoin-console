@@ -169,7 +169,9 @@ On te donne une requête (ce que l'opérateur cherche VRAIMENT) et une liste num
 Règles strictes :
 - Une annonce est PERTINENTE seulement si l'objet principal vendu EST ce que cherche la requête.
 - Pièges typiques : un jeu/accessoire qui mentionne la plateforme dans son titre n'est PAS la plateforme (ex. « Just Dance - Nintendo Switch » n'est pas une console Switch). Un étui n'est pas un téléphone. Une pile de litière n'est pas un animal.
-- Une annonce ambiguë ou hors-sujet est NON pertinente.
+- ACCESSOIRES ET PIÈCES ≠ APPAREIL : coque, étui, protection écran, verre trempé, film, écran de remplacement, batterie, câble, chargeur, adaptateur, support, lentille, filtre, housse, sticker, manette seule — pour un téléphone/console/appareil photo, ce n'est PAS l'appareil, donc NON pertinent, sauf si la requête demande explicitement cet accessoire.
+- L'appareil d'une GENERATION DIFFERENTE n'est pas l'appareil cherché : « Pixel 8a » ou « Pixel 9 » pour une requête « pixel 8 » est NON pertinent ; seul « Pixel 8 » (éventuellement Pro) l'est.
+- Une annonce ambiguë ou hors-sujet est NON pertinente. En cas de doute sur le modèle exact, garde-la (l'opérateur préfère relire que rater une affaire).
 Réponds UNIQUEMENT en JSON: {"keep": [numéros des annonces pertinentes]}`;
 
 /** Parse la réponse du filtre : tolérant (code fences, numéros, chaîne ou tableau). */
