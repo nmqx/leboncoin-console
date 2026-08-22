@@ -96,6 +96,11 @@ npm run dev                 # fixtures : serveur 8787 + Vite 5173
 $LBC_MODE="live"; npm run dev:server    # live : vraies annonces
 ```
 
+Le premier lancement live écrit **`console.config.json`** à la racine
+(gitignored) : mode, `dataDir` absolu, gateway LLM, host/port s'y persistent —
+un relancement plus tard, même depuis un autre dossier, retombe sur la même
+base et le même mode. Priorité : env du lancement > JSON > défauts.
+
 Prod locale (un seul port, le backend sert `apps/web/dist`) :
 
 ```powershell
