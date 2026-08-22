@@ -496,6 +496,37 @@ export class WebhooksRepo {
     return this.list().filter((w) => w.enabled && w.events.includes(event));
   }
 
+  watchIdsForWebhook(webhookId: number): number[] {
+    return this.db.all<{ watch_id: number }>("SELECT watch_id FROM watch_webhooks WHERE webhook_id = ?", webhookId).map((r) => r.watch_id);
+  }
+
+  webhookIdsForWatch(watchId: number): number[] {
+    return this.db.all<{ webhook_id: number }>("SELECT webhook_id FROM watch_webhooks WHERE watch_id = ?", watchId).map((r) => r.webhook_id);
+  }
+
+  setWatchWebhooks(watchId: number, webhookIds: number[]): void {
+    this.db.run("DELETE FROM watch_webhooks WHERE watch_id = ?", watchId);
+    for (const wid of webhookIds) {
+      if (this.byId(wid)) this.db.run("INSERT OR IGNORE INTO watch_webhooks (watch_id, webhook_id) VALUES (?, ?)", watchId, wid);
+    }
+  }
+
+  setWebhookWatches(webhookId: number, watchIds: number[]): void {
+    this.db.run("DELETE FROM watch_webhooks WHERE webhook_id = ?", webhookId);
+    for (const wid of watchIds) {
+      this.db.run("INSERT OR IGNORE INTO watch_webhooks (watch_id, webhook_id) VALUES (?, ?)", wid, webhookId);
+    }
+  }
+
+  enabledForWatch(event: EventName, watchId: number | null): Webhook[] {
+    const all = this.enabledFor(event);
+    if (watchId === null) return all.filter((w) => this.watchIdsForWebhook(w.id).length === 0);
+    return all.filter((w) => {
+      const ids = this.watchIdsForWebhook(w.id);
+      return ids.length === 0 || ids.includes(watchId);
+    });
+  }
+
   enqueue(event: EventName, payload: Record<string, unknown>): number {
     const webhooks = this.enabledFor(event);
     let n = 0;
@@ -506,6 +537,23 @@ export class WebhooksRepo {
         w.id, event, JSON.stringify(payload), iso(), iso()
       );
       if (Number(res.changes) > 0) n++;
+    }
+    return n;
+  }
+
+  enqueueForWatch(event: EventName, watchId: number, payload: Record<string, unknown>): number {
+    const webhooks = this.enabledForWatch(event, watchId);
+    let n = 0;
+    for (const w of webhooks) {
+      const res = this.db.run(
+        `INSERT INTO webhook_deliveries (webhook_id, event, payload_json, status, attempts, next_attempt_at, created_at)
+         VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
+        w.id, event, JSON.stringify({ ...payload, watchId }), iso(), iso()
+      );
+      if (Number(res.changes) > 0) n++;
+    }
+    if (n === 0 && watchId !== null) {
+      // fallback global webhooks already handled, but if watch has no explicit links, global webhooks already included
     }
     return n;
   }

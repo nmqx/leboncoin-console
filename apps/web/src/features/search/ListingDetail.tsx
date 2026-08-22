@@ -35,8 +35,14 @@ export default function ListingDetail({
     <aside className="detail" aria-label="Détail de l'annonce">
       <header>
         <strong style={{ flex: 1, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.title}</strong>
+        {(l.attributes as Record<string, unknown>)?._achatEnCours ? <Chip cls="coral">achat en cours</Chip> : null}
         <button type="button" className="btn subtle icon" onClick={onClose} aria-label="Fermer"><X size={15} /></button>
       </header>
+      {(l.attributes as Record<string, unknown>)?._achatEnCours ? (
+        <div className="banner coral" style={{ margin: 12, marginBottom: 0 }}>
+          Achat en cours sur cette annonce. Elle reste visible mais un acheteur a déjà engagé le paiement.
+        </div>
+      ) : null}
 
       {l.images.length > 0 ? (
         <div className="section">

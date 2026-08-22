@@ -73,7 +73,12 @@ export default function ResultsView() {
     },
     {
       key: "title", header: "Titre", width: "minmax(280px, 1fr)",
-      render: (l) => <span title={l.body ?? l.title}>{l.title}</span>,
+      render: (l) => (
+        <span title={l.body ?? l.title} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {l.title}
+          {(l.attributes as Record<string, unknown>)?._achatEnCours ? <Chip cls="coral">achat en cours</Chip> : null}
+        </span>
+      ),
     },
     { key: "city", header: "Ville", width: "120px", render: (l) => <span className="muted">{l.location?.city ?? "—"}</span> },
     {

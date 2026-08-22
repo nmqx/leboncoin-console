@@ -74,6 +74,24 @@ export const webhookRoutes: RouteModule = (app: FastifyInstance, ctx) => {
     return { ok: true };
   });
 
+  app.get("/api/v1/webhooks/:id/watches", async (req) => {
+    const { id } = req.params as { id: string };
+    const wh = ctx.repos.webhooks.byId(Number(id));
+    if (!wh) throw notFound("Webhook");
+    return { webhookId: wh.id, watchIds: ctx.repos.webhooks.watchIdsForWebhook(wh.id) };
+  });
+
+  app.put("/api/v1/webhooks/:id/watches", async (req) => {
+    const { id } = req.params as { id: string };
+    const wh = ctx.repos.webhooks.byId(Number(id));
+    if (!wh) throw notFound("Webhook");
+    const body = z.object({ watchIds: z.array(z.number().int()).default([]) }).parse(req.body);
+    for (const wid of body.watchIds) if (!ctx.repos.watches.byId(wid)) throw badRequest(`Veille ${wid} introuvable`);
+    ctx.repos.webhooks.setWebhookWatches(wh.id, body.watchIds);
+    ctx.repos.audit.insert("webhook.watches", { webhookId: wh.id, watchIds: body.watchIds });
+    return { webhookId: wh.id, watchIds: ctx.repos.webhooks.watchIdsForWebhook(wh.id) };
+  });
+
   // Secret LLM + clé AnySolver + import/export de configuration
   app.post("/api/v1/system/llm-key", async (req) => {
     const body = z.object({ apiKey: z.string().min(10) }).parse(req.body);

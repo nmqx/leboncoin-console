@@ -204,6 +204,20 @@ CREATE TABLE IF NOT EXISTS watch_listings (
 CREATE INDEX IF NOT EXISTS idx_watch_listings_watch ON watch_listings(watch_id, seen_at DESC);
 `,
   },
+  {
+    id: 4,
+    name: "watch_webhooks",
+    sql: `
+-- liaisons veille <-> webhook : N:M, un webhook peut ecouter N veilles
+CREATE TABLE IF NOT EXISTS watch_webhooks (
+  watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+  webhook_id INTEGER NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+  PRIMARY KEY (watch_id, webhook_id)
+);
+CREATE INDEX IF NOT EXISTS idx_watch_webhooks_watch ON watch_webhooks(watch_id);
+CREATE INDEX IF NOT EXISTS idx_watch_webhooks_webhook ON watch_webhooks(webhook_id);
+`,
+  },
 ];
 
 export class Db {

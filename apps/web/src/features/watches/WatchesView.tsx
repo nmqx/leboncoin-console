@@ -4,7 +4,7 @@ import { Play, Pause, Trash2, Plus, X, Pencil, RefreshCw, Eye } from "lucide-rea
 import type { SearchSpec, Watch } from "@lbc/contracts";
 
 /** GET /watches renvoie le nombre de résultats liés par veille. */
-type WatchWithCount = Watch & { listingCount?: number };
+type WatchWithCount = Watch & { listingCount?: number; webhookIds?: number[] };
 import { LBC_CATEGORIES, rangeAttributesForCategory } from "@lbc/contracts";
 import { api } from "../../api";
 import { timeAgo, dt } from "../../format";
@@ -241,7 +241,7 @@ function WatchFields({ form, set }: { form: WatchForm; set: (patch: Partial<Watc
 }
 
 function WatchEditor({
-  form, set, title, saveLabel, busy, invalid, onSave, onCancel, onReset,
+  form, set, title, saveLabel, busy, invalid, onSave, onCancel, onReset, webhookIds, onWebhooksChange,
 }: {
   form: WatchForm;
   set: (patch: Partial<WatchForm>) => void;
@@ -252,6 +252,8 @@ function WatchEditor({
   onSave: () => void;
   onCancel: () => void;
   onReset?: () => void;
+  webhookIds?: number[];
+  onWebhooksChange?: (ids: number[]) => void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -260,6 +262,8 @@ function WatchEditor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel]);
+
+  const webhooksQ = useQuery({ queryKey: ["webhooks"], queryFn: api.webhooks });
 
   return (
     <div className="overlay dialog-scrim" onClick={onCancel} role="dialog" aria-modal="true" aria-label={title}>
@@ -272,6 +276,33 @@ function WatchEditor({
           <div className="dialog-grid">
             <WatchFields form={form} set={set} />
           </div>
+          {webhooksQ.data && webhookIds !== undefined && onWebhooksChange ? (
+            <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", marginBottom: 6 }}>Webhooks assignes</div>
+              <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>Vide = global : tous les webhooks recoivent cette veille. Cochez pour restreindre a certains webhooks uniquement.</div>
+              {webhooksQ.data.webhooks.length === 0 ? (
+                <span className="muted" style={{ fontSize: 11 }}>Aucun webhook configure. Creez en un dans Webhooks.</span>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {webhooksQ.data.webhooks.map((wh) => (
+                    <label key={wh.id} className="check-row" style={{ height: 30 }}>
+                      <span style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {wh.kind} · {wh.url.replace(/(webhooks\/\d+\/).+/, "$1***")} · {wh.events.join(", ")}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={webhookIds.includes(wh.id)}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...webhookIds, wh.id] : webhookIds.filter((x) => x !== wh.id);
+                          onWebhooksChange(next);
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
           {invalid ? <p className="dialog-note">une requête est obligatoire</p> : null}
         </div>
         <footer className="dialog-actions">
@@ -294,15 +325,25 @@ function WatchEditor({
 export default function WatchesView() {
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["watches"], queryFn: api.watches });
+  const webhooksQ = useQuery({ queryKey: ["webhooks"], queryFn: api.webhooks });
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<WatchForm>(EMPTY_FORM);
+  const [createWebhookIds, setCreateWebhookIds] = useState<number[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<WatchForm>(EMPTY_FORM);
+  const [editWebhookIds, setEditWebhookIds] = useState<number[]>([]);
   const [runningId, setRunningId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (editingId !== null) {
+      api.watchWebhooks(editingId).then((r) => setEditWebhookIds(r.webhookIds)).catch(() => setEditWebhookIds([]));
+    } else setEditWebhookIds([]);
+  }, [editingId]);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["watches"] });
     void qc.invalidateQueries({ queryKey: ["listings"] });
+    void qc.invalidateQueries({ queryKey: ["webhooks"] });
   };
 
   const run = useMutation({
@@ -319,21 +360,28 @@ export default function WatchesView() {
   });
   const remove = useMutation({ mutationFn: api.deleteWatch, onSuccess: invalidate });
   const create = useMutation({
-    mutationFn: () =>
-      api.createWatch(createForm.name.trim() || "Veille", formToSpec(createForm), createForm.cadenceMinutes),
+    mutationFn: async () => {
+      const watch = await api.createWatch(createForm.name.trim() || "Veille", formToSpec(createForm), createForm.cadenceMinutes);
+      if (createWebhookIds.length > 0) await api.setWatchWebhooks(watch.id, createWebhookIds);
+      return watch;
+    },
     onSuccess: () => {
       invalidate();
       setCreateOpen(false);
       setCreateForm(EMPTY_FORM);
+      setCreateWebhookIds([]);
     },
   });
   const saveEdit = useMutation({
-    mutationFn: (id: number) =>
-      api.updateWatch(id, {
+    mutationFn: async (id: number) => {
+      const updated = await api.updateWatch(id, {
         name: editForm.name.trim() || "Veille",
         spec: formToSpec(editForm),
         cadenceMinutes: editForm.cadenceMinutes,
-      }),
+      });
+      await api.setWatchWebhooks(id, editWebhookIds);
+      return updated;
+    },
     onSuccess: () => {
       invalidate();
       setEditingId(null);
@@ -385,7 +433,9 @@ function specSummary(w: Watch): string {
             invalid={!createForm.query.trim()}
             onSave={() => create.mutate()}
             onCancel={() => setCreateOpen(false)}
-            onReset={() => setCreateForm(EMPTY_FORM)}
+            onReset={() => { setCreateForm(EMPTY_FORM); setCreateWebhookIds([]); }}
+            webhookIds={createWebhookIds}
+            onWebhooksChange={setCreateWebhookIds}
           />
         ) : null}
 
@@ -399,6 +449,8 @@ function specSummary(w: Watch): string {
             invalid={!editForm.query.trim()}
             onSave={() => saveEdit.mutate(editingId)}
             onCancel={() => setEditingId(null)}
+            webhookIds={editWebhookIds}
+            onWebhooksChange={setEditWebhookIds}
           />
         ) : null}
 
@@ -417,6 +469,7 @@ function specSummary(w: Watch): string {
                   <th style={{ width: 70 }}>Cadence</th>
                   <th style={{ width: 110 }}>Dernier run</th>
                   <th style={{ width: 110 }}>Statut</th>
+                  <th style={{ width: 90 }}>Webhooks</th>
                   <th style={{ width: 150 }}>Résultats</th>
                   <th style={{ width: 90 }}></th>
                 </tr>
@@ -443,6 +496,11 @@ function specSummary(w: Watch): string {
                        w.lastStatus === "quarantined" ? <Chip cls="coral">quarantaine</Chip> :
                        w.lastStatus ? <Chip cls="amber">{w.lastStatus}</Chip> :
                        <span className="muted">jamais lancée</span>}
+                    </td>
+                    <td className="muted" style={{ fontSize: 11 }}>
+                      {(w as WatchWithCount).webhookIds?.length
+                        ? <Chip cls="accent">{(w as WatchWithCount).webhookIds!.length} webhook{(w as WatchWithCount).webhookIds!.length > 1 ? "s" : ""}</Chip>
+                        : <span className="muted">global</span>}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <button

@@ -210,8 +210,9 @@ export default function SearchView() {
     {
       key: "title", header: "Titre", width: "minmax(260px, 3fr)",
       render: (l) => (
-        <span title={l.body ?? l.title} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+        <span title={l.body ?? l.title} style={{ overflow: "hidden", textOverflow: "ellipsis", display: "inline-flex", alignItems: "center", gap: 6 }}>
           {l.title}
+          {(l.attributes as Record<string, unknown>)?._achatEnCours ? <Chip cls="coral">achat en cours</Chip> : null}
         </span>
       ),
     },

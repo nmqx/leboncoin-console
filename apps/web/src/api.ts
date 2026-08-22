@@ -91,7 +91,7 @@ export const api = {
 
   searchJob: (spec: unknown) => call<SearchJob>("/search-jobs", { method: "POST", body: JSON.stringify(spec) }),
 
-  watches: () => call<{ watches: Array<Watch & { listingCount: number }> }>("/watches"),
+  watches: () => call<{ watches: Array<Watch & { listingCount: number; webhookIds: number[] }> }>("/watches"),
 
   categories: () =>
     call<{
@@ -134,6 +134,10 @@ export const api = {
   testWebhook: (id: number) => call<{ ok: boolean; deliveries: Delivery[] }>(`/webhooks/${id}/test`, { method: "POST" }),
   deliveries: (id: number) => call<{ deliveries: Delivery[] }>(`/webhooks/${id}/deliveries`),
   replayDelivery: (id: number) => call<{ ok: boolean }>(`/webhooks/deliveries/${id}/replay`, { method: "POST" }),
+  watchWebhooks: (id: number) => call<{ watchId: number; webhookIds: number[]; webhooks: Webhook[] }>(`/watches/${id}/webhooks`),
+  setWatchWebhooks: (id: number, webhookIds: number[]) => call<{ watchId: number; webhookIds: number[] }>(`/watches/${id}/webhooks`, { method: "PUT", body: JSON.stringify({ webhookIds }) }),
+  webhookWatches: (id: number) => call<{ webhookId: number; watchIds: number[] }>(`/webhooks/${id}/watches`),
+  setWebhookWatches: (id: number, watchIds: number[]) => call<{ webhookId: number; watchIds: number[] }>(`/webhooks/${id}/watches`, { method: "PUT", body: JSON.stringify({ watchIds }) }),
 
   sessionImport: (payload: unknown) =>
     call<{ ok: boolean; userId: string | null; expiresAt: string | null; vault: string }>("/session/import", {

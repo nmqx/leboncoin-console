@@ -152,6 +152,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
       watches: ctx.repos.watches.list().map((w) => ({
         ...w,
         listingCount: ctx.repos.watches.listingCount(w.id),
+        webhookIds: ctx.repos.webhooks.webhookIdsForWatch(w.id),
       })),
     };
   });
@@ -185,6 +186,26 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
     return { ok: true };
   });
 
+  app.get("/api/v1/watches/:id/webhooks", async (req) => {
+    const { id } = req.params as { id: string };
+    const watch = ctx.repos.watches.byId(Number(id));
+    if (!watch) throw notFound("Veille");
+    const webhookIds = ctx.repos.webhooks.webhookIdsForWatch(watch.id);
+    return { watchId: watch.id, webhookIds, webhooks: webhookIds.map((wid) => ctx.repos.webhooks.byId(wid)).filter(Boolean) };
+  });
+
+  app.put("/api/v1/watches/:id/webhooks", async (req) => {
+    const { id } = req.params as { id: string };
+    const watch = ctx.repos.watches.byId(Number(id));
+    if (!watch) throw notFound("Veille");
+    const body = z.object({ webhookIds: z.array(z.number().int()).default([]) }).parse(req.body);
+    for (const wid of body.webhookIds) if (!ctx.repos.webhooks.byId(wid)) throw notFound(`Webhook ${wid}`);
+    ctx.repos.webhooks.setWatchWebhooks(watch.id, body.webhookIds);
+    ctx.repos.audit.insert("watch.webhooks", { watchId: watch.id, webhookIds: body.webhookIds });
+    const webhookIds = ctx.repos.webhooks.webhookIdsForWatch(watch.id);
+    return { watchId: watch.id, webhookIds, webhooks: webhookIds.map((wid) => ctx.repos.webhooks.byId(wid)).filter(Boolean) };
+  });
+
   app.post("/api/v1/watches/:id/run", async (req) => {
     const { id } = req.params as { id: string };
     const watch = ctx.repos.watches.byId(Number(id));
@@ -201,6 +222,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
       });
       ctx.repos.watches.markRun(watch.id, "completed");
       ctx.bus.publish("watch.completed", { watchId: watch.id, name: watch.name, jobId, ...result, manual: true });
+      ctx.repos.webhooks.enqueueForWatch("watch.completed", watch.id, { watchId: watch.id, name: watch.name, jobId, ...result, manual: true });
     } catch (err) {
       const e = err as Error & { code?: string };
       ctx.repos.jobs.finish(jobId, "quarantined", {
@@ -208,6 +230,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
       });
       ctx.repos.watches.markRun(watch.id, "quarantined");
       ctx.bus.publish("challenge.failed", { watchId: watch.id, name: watch.name, code: e.code ?? "engine_error", message: e.message });
+      ctx.repos.webhooks.enqueueForWatch("challenge.failed", watch.id, { watchId: watch.id, name: watch.name, code: e.code ?? "engine_error", message: e.message });
     }
     return ctx.repos.jobs.byId(jobId)!;
   });

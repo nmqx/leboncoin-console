@@ -86,7 +86,7 @@ export function startScheduler(
       });
       repos.watches.markRun(watchId, "completed");
       bus.publish("watch.completed", { watchId, name, jobId, ...result, correlationId: jobId });
-      repos.webhooks.enqueue("watch.completed", { watchId, name, jobId, ...result });
+      repos.webhooks.enqueueForWatch("watch.completed", watchId, { watchId, name, jobId, ...result });
     } catch (err) {
       const e = err as Error & { code?: string };
       repos.jobs.finish(jobId, "quarantined", {
@@ -101,7 +101,7 @@ export function startScheduler(
         message: e.message,
         correlationId: jobId,
       });
-      repos.webhooks.enqueue("challenge.failed", { watchId, name, code: e.code ?? "engine_error", message: e.message });
+      repos.webhooks.enqueueForWatch("challenge.failed", watchId, { watchId, name, code: e.code ?? "engine_error", message: e.message });
       logger.warn({ err: e.message, watchId }, "veille mise en quarantaine");
     }
   };

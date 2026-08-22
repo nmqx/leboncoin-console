@@ -100,9 +100,29 @@ function attributesOf(ad: RawAd): Record<string, unknown> {
   return out;
 }
 
+function isPurchaseInProgress(ad: RawAd, attrs: Record<string, unknown>): boolean {
+  const haystack: string[] = [];
+  if (typeof ad.status === "string") haystack.push(ad.status);
+  for (const v of Object.values(attrs)) {
+    if (typeof v === "string") haystack.push(v);
+  }
+  if (Array.isArray(ad.attributes)) {
+    for (const a of ad.attributes) {
+      if (typeof a.value === "string") haystack.push(a.value);
+      if (typeof a.value_label === "string") haystack.push(a.value_label);
+    }
+  }
+  return haystack.some((s) => {
+    const f = s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return f.includes("achat en cours") || f.includes("achat en cour") || f.includes("reserve") || f.includes("reservé") || f.includes("vendu");
+  });
+}
+
 export function normalizeAd(ad: RawAd, scrapedAt = new Date().toISOString()): Listing {
   const id = String(ad.list_id);
   const category = ad.category_name ?? ad.category_id;
+  const attrs = attributesOf(ad);
+  if (isPurchaseInProgress(ad, attrs)) attrs["_achatEnCours"] = true;
   return {
     id,
     url: ad.url ?? `https://www.leboncoin.fr/ad/${id}`,
@@ -127,7 +147,7 @@ export function normalizeAd(ad: RawAd, scrapedAt = new Date().toISOString()): Li
         }
       : undefined,
     images: imagesOf(ad.images),
-    attributes: attributesOf(ad),
+    attributes: attrs,
     score: 0,
     source: "authorized-web",
   };
