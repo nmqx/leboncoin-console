@@ -2,7 +2,7 @@
 
 Ce guide démarre le projet **à zéro sur une nouvelle machine** et remet le
 dev en route. La documentation de passation complète (architecture, contrats
-reversés, vérités acquises, statut) vit dans **README.md** — lis-le après
+reversés, vérités acquises, statut) vit dans **HANDOFF.md** — lis-le après
 celui-ci, surtout §5 (contrats) et §6 (pièges).
 
 ---
@@ -95,7 +95,7 @@ npm run typecheck      # server + web, strict
 ```
 
 - Le serveur redémarre proprement : `taskkill //F //IM node.exe` puis relance
-  (rituel documenté README §3).
+  (rituel documenté HANDOFF §3).
 - Base : `data/console.db` (SQLite WAL) — inspectable avec n'importe quel
   client sqlite. Supprime-le pour repartir d'une base vierge (fixtures
   réamorçées au boot en mode non-live).
@@ -104,12 +104,12 @@ npm run typecheck      # server + web, strict
 
 ## 7. Où continuer
 
-Le README §2 « Reste à faire » est la liste vivante. En bref aujourd'hui :
+Le HANDOFF §2 « Reste à faire » est la liste vivante. En bref aujourd'hui :
 clé LLM fournie et testée (diagnostics « pong », filtre sémantique vérifié en
 live — usage limité au filtrage sur demande de l'opérateur), premier tir réel
 de l'auto-réponse à faire sur une conversation choisie, solve AnySolver armé
 mais jamais requis. Toute la connaissance coûteuse (contrats API, pièges
-DataDome/CDP/chrome, format des requêtes messagerie) est dans README §5–§6.
+DataDome/CDP/chrome, format des requêtes messagerie) est dans HANDOFF §5–§6.
 
 ## 8. Règles d'hygiène du repo
 
