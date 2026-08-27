@@ -50,5 +50,10 @@ la connexion survit aux redémarrages du conteneur.
 - Le coffre bascule sur AES local hors Windows (clé `data/.vault-key` dans le
   volume). Perdre le volume, c'est perdre session et clés.
 - `LBC_MODE=live` par défaut ici. Mettre `fixtures` pour un mode hors-ligne.
+- Le filtre LLM exige **deux** choses : la clé (écran Système, chiffrée dans le
+  coffre) et `LLM_BASE_URL` dans `deploy/.env`. Sans l'URL de la gateway, la
+  clé seule laisse l'écran Système en échec (`console.config.json` reste à la
+  racine du repo hôte, il n'entre pas dans l'image). Vérification :
+  `POST /api/v1/diagnostics/llm` doit répondre `{"ok":true,...,"sample":"pong"}`.
 - Rien n'est joignable sans le mot de passe : Caddy est le seul port publié,
   l'application et le VNC ne sont exposés que sur le réseau Docker interne.
