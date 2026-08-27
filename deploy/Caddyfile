@@ -12,13 +12,18 @@
 
 	# Bureau distant : le Chrome lancé par la console s'affiche ici, ce qui
 	# permet de se connecter à Leboncoin depuis l'IP de cette machine.
-	redir /vnc /vnc/vnc.html
+	handle /vnc {
+		redir /vnc/vnc.html
+	}
 	handle_path /vnc/* {
+		rewrite / /vnc.html
 		reverse_proxy app:6080
 	}
 
-	reverse_proxy app:8787 {
-		header_up X-Forwarded-Proto https
+	handle {
+		reverse_proxy app:8787 {
+			header_up X-Forwarded-Proto https
+		}
 	}
 
 	encode gzip
