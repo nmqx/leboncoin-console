@@ -13,7 +13,7 @@
 	# Bureau distant : le Chrome lancé par la console s'affiche ici, ce qui
 	# permet de se connecter à Leboncoin depuis l'IP de cette machine.
 	handle /vnc {
-		redir /vnc/vnc.html
+		redir * /vnc/vnc.html
 	}
 	handle_path /vnc/* {
 		rewrite / /vnc.html
