@@ -1,6 +1,7 @@
 # Console Leboncoin derrière Caddy (mot de passe HTTP Basic).
-# Rien n'est publié en clair sur le réseau : Caddy écoute sur 127.0.0.1:8080,
-# l'exposition publique passe par `tailscale funnel 8080` (HTTPS + Let's Encrypt).
+# Caddy est le seul point d'entrée : rien n'atteint le serveur sans le mot de
+# passe. Accès web public au choix — `tailscale funnel 8080` (URL .ts.net
+# stable, TLS Let's Encrypt) ou le profil `public` ci-dessous (cloudflared).
 services:
   app:
     build:
@@ -35,7 +36,21 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     ports:
-      - "127.0.0.1:8080:8080"
+      # Tailnet + LAN : accessible depuis n'importe quelle machine du reseau,
+      # toujours derriere le mot de passe Caddy.
+      - "8080:8080"
+
+  # Tunnel public ephemere (URL *.trycloudflare.com imprimee dans les logs).
+  # `docker compose --profile public up -d`. A remplacer par Tailscale Funnel
+  # une fois celui-ci active sur le tailnet : URL stable en .ts.net.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: lbc-tunnel
+    restart: unless-stopped
+    depends_on:
+      - proxy
+    command: tunnel --no-autoupdate --url http://proxy:8080
+    profiles: ["public"]
 
 volumes:
   lbc-data:
