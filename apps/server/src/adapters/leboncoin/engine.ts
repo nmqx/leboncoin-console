@@ -16,7 +16,7 @@ export interface EngineRunResult {
 
 export interface SearchEngine {
   readonly kind: "fixtures" | "live";
-  run(jobId: string, spec: SearchSpec, correlationId: string): Promise<EngineRunResult>;
+  run(jobId: string, spec: SearchSpec, correlationId: string, watchId?: number | null): Promise<EngineRunResult>;
 }
 
 /**
@@ -55,7 +55,7 @@ export class FixtureEngine implements SearchEngine {
     return out.slice(0, spec.maxItems ?? 200);
   }
 
-  async run(jobId: string, spec: SearchSpec, correlationId: string): Promise<EngineRunResult> {
+  async run(jobId: string, spec: SearchSpec, correlationId: string, watchId?: number | null): Promise<EngineRunResult> {
     const pool = allFixtures();
     const filtered = this.filter(spec, pool);
 
@@ -92,13 +92,15 @@ export class FixtureEngine implements SearchEngine {
           jobId,
           correlationId,
         });
-        this.repos.webhooks.enqueue("listing.created", {
-          listingId: o.listing.id,
-          title: o.listing.title,
-          priceCents: o.listing.priceCents ?? null,
-          url: o.listing.url,
-          city: o.listing.location?.city ?? null,
-        });
+        if (watchId !== undefined && watchId !== null) {
+          this.repos.webhooks.enqueueForWatch("listing.created", watchId, {
+            listingId: o.listing.id,
+            title: o.listing.title,
+            priceCents: o.listing.priceCents ?? null,
+            url: o.listing.url,
+            city: o.listing.location?.city ?? null,
+          });
+        }
       } else if (o.priceChanged) {
         this.bus.publish("listing.price_changed", {
           listingId: o.listing.id,
@@ -107,13 +109,15 @@ export class FixtureEngine implements SearchEngine {
           jobId,
           correlationId,
         });
-        this.repos.webhooks.enqueue("listing.price_changed", {
-          listingId: o.listing.id,
-          previousPriceCents: o.previousPriceCents,
-          newPriceCents: o.listing.priceCents ?? null,
-          title: o.listing.title,
-          url: o.listing.url,
-        });
+        if (watchId !== undefined && watchId !== null) {
+          this.repos.webhooks.enqueueForWatch("listing.price_changed", watchId, {
+            listingId: o.listing.id,
+            previousPriceCents: o.previousPriceCents,
+            newPriceCents: o.listing.priceCents ?? null,
+            title: o.listing.title,
+            url: o.listing.url,
+          });
+        }
       }
     }
 

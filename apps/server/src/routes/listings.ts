@@ -30,7 +30,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
     ctx.repos.jobs.create(jobId, watchId, spec, jobId);
     ctx.bus.publish("search.started", { jobId, correlationId: jobId });
     try {
-      const result = await ctx.engine.run(jobId, spec, jobId);
+      const result = await ctx.engine.run(jobId, spec, jobId, watchId);
       if (watchId !== null) ctx.repos.watches.linkListings(watchId, result.listingIds);
       ctx.repos.jobs.finish(jobId, "completed", {
         pageCount: result.pageCount,
@@ -213,7 +213,7 @@ export const listingsRoutes: RouteModule = (app: FastifyInstance, ctx) => {
     const jobId = `job-${Date.now()}-${watch.id}-${Math.floor(Math.random() * 1e4)}`;
     ctx.repos.jobs.create(jobId, watch.id, watch.spec, jobId);
     try {
-      const result = await ctx.engine.run(jobId, watch.spec, jobId);
+      const result = await ctx.engine.run(jobId, watch.spec, jobId, watch.id);
       ctx.repos.watches.linkListings(watch.id, result.listingIds);
       ctx.repos.jobs.finish(jobId, "completed", {
         pageCount: result.pageCount,

@@ -49,7 +49,7 @@ export const webhookRoutes: RouteModule = (app: FastifyInstance, ctx) => {
     const { id } = req.params as { id: string };
     const webhook = ctx.repos.webhooks.byId(Number(id));
     if (!webhook) throw notFound("Webhook");
-    ctx.repos.webhooks.enqueue("listing.created", {
+    ctx.repos.webhooks.enqueueForWebhook(webhook.id, "listing.created", {
       title: "[TEST] Livraison webhook",
       priceCents: 1234500,
       url: "https://www.leboncoin.fr/",

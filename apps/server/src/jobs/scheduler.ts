@@ -77,7 +77,7 @@ export function startScheduler(
         repos.watches.markRun(watchId, "quarantined");
         return;
       }
-      const result = await withTimeout(engine.run(jobId, spec, jobId), WATCH_TIMEOUT_MS, `veille ${watchId}`);
+      const result = await withTimeout(engine.run(jobId, spec, jobId, watchId), WATCH_TIMEOUT_MS, `veille ${watchId}`);
       repos.watches.linkListings(watchId, result.listingIds);
       repos.jobs.finish(jobId, "completed", {
         pageCount: result.pageCount,

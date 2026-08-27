@@ -319,11 +319,11 @@ export class LiveEngine implements SearchEngine {
     throw err;
   }
 
-  async run(jobId: string, spec: SearchSpec, correlationId: string): Promise<EngineRunResult> {
+  async run(jobId: string, spec: SearchSpec, correlationId: string, watchId?: number | null): Promise<EngineRunResult> {
     const primary = await this.deps.getProxy();
     let lastErr: unknown;
     try {
-      return await this.runOnce(jobId, spec, correlationId, primary, true);
+      return await this.runOnce(jobId, spec, correlationId, primary, true, watchId);
     } catch (err) {
       lastErr = err;
       let code = (err as Error & { code?: string }).code ?? "";
@@ -339,7 +339,7 @@ export class LiveEngine implements SearchEngine {
         this.deps.bus.publish("challenge.failover_clean", { jobId, code, correlationId });
         logger.warn({ jobId, code }, "DataDome avec profil de session — repli empreinte propre");
         try {
-          return await this.runOnce(jobId, spec, correlationId, primary, false);
+          return await this.runOnce(jobId, spec, correlationId, primary, false, watchId);
         } catch (err2) {
           lastErr = err2;
           code = (err2 as Error & { code?: string }).code ?? "engine_error";
@@ -360,7 +360,7 @@ export class LiveEngine implements SearchEngine {
           });
           logger.warn({ jobId, code }, "DataDome en direct — repli proxy");
           try {
-            return await this.runOnce(jobId, spec, correlationId, backup, false);
+            return await this.runOnce(jobId, spec, correlationId, backup, false, watchId);
           } catch (err3) {
             lastErr = err3;
             code = (err3 as Error & { code?: string }).code ?? "engine_error";
@@ -377,7 +377,8 @@ export class LiveEngine implements SearchEngine {
     spec: SearchSpec,
     correlationId: string,
     proxy: ProxyConfig | null,
-    useSession: boolean
+    useSession: boolean,
+    watchId?: number | null
   ): Promise<EngineRunResult> {
     // Sans texte, /recherche renvoie le flux générique national (catégories
     // mélangées) — ce n'est pas une recherche, on refuse plutôt que polluer.
@@ -510,20 +511,24 @@ export class LiveEngine implements SearchEngine {
           listingId: o.listing.id, title: o.listing.title,
           priceCents: o.listing.priceCents ?? null, jobId, correlationId,
         });
-        this.deps.repos.webhooks.enqueue("listing.created", {
-          listingId: o.listing.id, title: o.listing.title,
-          priceCents: o.listing.priceCents ?? null, url: o.listing.url,
-          city: o.listing.location?.city ?? null,
-        });
+        if (watchId !== undefined && watchId !== null) {
+          this.deps.repos.webhooks.enqueueForWatch("listing.created", watchId, {
+            listingId: o.listing.id, title: o.listing.title,
+            priceCents: o.listing.priceCents ?? null, url: o.listing.url,
+            city: o.listing.location?.city ?? null,
+          });
+        }
       } else if (o.priceChanged) {
         this.deps.bus.publish("listing.price_changed", {
           listingId: o.listing.id, previousPriceCents: o.previousPriceCents,
           newPriceCents: o.listing.priceCents ?? null, jobId, correlationId,
         });
-        this.deps.repos.webhooks.enqueue("listing.price_changed", {
-          listingId: o.listing.id, previousPriceCents: o.previousPriceCents,
-          newPriceCents: o.listing.priceCents ?? null, title: o.listing.title, url: o.listing.url,
-        });
+        if (watchId !== undefined && watchId !== null) {
+          this.deps.repos.webhooks.enqueueForWatch("listing.price_changed", watchId, {
+            listingId: o.listing.id, previousPriceCents: o.previousPriceCents,
+            newPriceCents: o.listing.priceCents ?? null, title: o.listing.title, url: o.listing.url,
+          });
+        }
       }
     }
     logger.info({ jobId, found: withDeal.length, collected: collected.length, newCount, pages }, "engine live terminé");

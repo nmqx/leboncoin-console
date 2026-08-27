@@ -217,6 +217,49 @@ describe("API locale — webhooks", () => {
     expect(deliveries[0].attempts).toBeGreaterThanOrEqual(1);
     expect(["pending", "failed", "dead", "delivered"]).toContain(deliveries[0].status);
   });
+
+  it("une recherche manuelle ne déclenche PAS de webhook, seule une veille notifie", async () => {
+    const createdWh = (await app.inject({
+      method: "POST",
+      url: "/api/v1/webhooks",
+      payload: { kind: "http", url: "https://example.local/hook-watch-only", events: ["listing.created", "watch.completed"], secret: "secret-hmac-32-chars-long-test" },
+    })).json();
+
+    const beforeDels = (await app.inject({ method: "GET", url: `/api/v1/webhooks/${createdWh.id}/deliveries` })).json().deliveries;
+
+    // 1. Recherche manuelle (sans watchId) -> pas de livraison webhook
+    const searchRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/search-jobs",
+      payload: { query: "iphone", maxItems: 10 },
+    });
+    expect(searchRes.statusCode).toBe(200);
+
+    const afterSearchDels = (await app.inject({ method: "GET", url: `/api/v1/webhooks/${createdWh.id}/deliveries` })).json().deliveries;
+    expect(afterSearchDels.length).toBe(beforeDels.length);
+
+    // 2. Création d'une veille et exécution -> webhook déclenché
+    const watch = (await app.inject({
+      method: "POST",
+      url: "/api/v1/watches",
+      payload: { name: "Veille test webhook", spec: { query: "macbook", maxItems: 10 }, cadenceMinutes: 10 },
+    })).json();
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/watches/${watch.id}/webhooks`,
+      payload: { webhookIds: [createdWh.id] },
+    });
+
+    const runWatchRes = await app.inject({
+      method: "POST",
+      url: `/api/v1/watches/${watch.id}/run`,
+    });
+    expect(runWatchRes.statusCode).toBe(200);
+
+    const afterWatchDels = (await app.inject({ method: "GET", url: `/api/v1/webhooks/${createdWh.id}/deliveries` })).json().deliveries;
+    expect(afterWatchDels.length).toBeGreaterThan(beforeDels.length);
+  });
 });
 
 describe("API locale — session", () => {

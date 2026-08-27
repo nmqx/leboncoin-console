@@ -541,6 +541,15 @@ export class WebhooksRepo {
     return n;
   }
 
+  enqueueForWebhook(webhookId: number, event: EventName, payload: Record<string, unknown>): number {
+    const res = this.db.run(
+      `INSERT INTO webhook_deliveries (webhook_id, event, payload_json, status, attempts, next_attempt_at, created_at)
+       VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
+      webhookId, event, JSON.stringify(payload), iso(), iso()
+    );
+    return Number(res.changes) > 0 ? 1 : 0;
+  }
+
   enqueueForWatch(event: EventName, watchId: number, payload: Record<string, unknown>): number {
     const webhooks = this.enabledForWatch(event, watchId);
     let n = 0;
