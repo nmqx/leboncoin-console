@@ -10,9 +10,10 @@ COPY apps/server/package.json apps/server/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/fixtures/package.json packages/fixtures/package.json
-# @primno/dpapi est un module natif Windows : inutile ici, le coffre bascule
-# sur AES local (data/.vault-key) hors win32.
-RUN npm ci --no-audit --no-fund --omit=optional || npm ci --no-audit --no-fund
+# npm ci complet : vite/rollup/esbuild dependent de paquets optionnels par
+# plateforme (les omettre casse le build du front). @primno/dpapi est un module
+# natif Windows, inerte ici : le coffre bascule sur AES local hors win32.
+RUN npm ci --no-audit --no-fund
 
 COPY . .
 RUN npm run build -w apps/web
