@@ -1,0 +1,43 @@
+# Console Leboncoin derrière Caddy (mot de passe HTTP Basic).
+# Rien n'est publié en clair sur le réseau : Caddy écoute sur 127.0.0.1:8080,
+# l'exposition publique passe par `tailscale funnel 8080` (HTTPS + Let's Encrypt).
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: lbc-console:latest
+    container_name: lbc-app
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      LBC_MODE: ${LBC_MODE:-live}
+      DATA_DIR: /app/data
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-gemini-3.7-flash-high}
+    volumes:
+      - lbc-data:/app/data
+    expose:
+      - "8787"
+
+  proxy:
+    image: caddy:2-alpine
+    container_name: lbc-proxy
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      LBC_USER: ${LBC_USER:?definir LBC_USER dans deploy/.env}
+      LBC_HASH: ${LBC_HASH:?definir LBC_HASH dans deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  lbc-data:
+  caddy-data:
+  caddy-config:

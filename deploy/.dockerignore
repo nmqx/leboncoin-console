@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+data
+logs
+.git
+apps/web/dist
+test-results
+playwright-report
+coverage
+console.config.json
+.env
+deploy/.env
