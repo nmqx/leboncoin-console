@@ -1,6 +1,7 @@
 #!/bin/sh
 # Bureau X virtuel + noVNC, puis la console. Le navigateur lancé par la console
 # (« Ouvrir Chrome & se connecter ») s'affiche sur ce bureau, visible depuis le
+rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
 # web sur /vnc/ — c'est ainsi qu'on se connecte à Leboncoin sans écran ici.
 set -e
 

@@ -3,15 +3,7 @@
 	auto_https off
 }
 
-# Tailscale Funnel termine le TLS en amont : ici du HTTP simple, protégé par
-# HTTP Basic (hash bcrypt fourni par l'environnement, jamais en clair ici).
 :8080 {
-	basic_auth {
-		{$LBC_USER} {$LBC_HASH}
-	}
-
-	# Bureau distant : le Chrome lancé par la console s'affiche ici, ce qui
-	# permet de se connecter à Leboncoin depuis l'IP de cette machine.
 	handle /vnc {
 		redir * /vnc/vnc.html
 	}

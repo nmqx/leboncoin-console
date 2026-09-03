@@ -87,6 +87,8 @@ function buildDiscordMessage(event: string, payload: Record<string, unknown>) {
   const title = payload["title"] as string | undefined;
   const url = payload["url"] as string | undefined;
   const price = payload["priceCents"] as number | null | undefined;
+  const body = payload["body"] as string | null | undefined;
+  const image = payload["image"] as string | null | undefined;
   const fields: Array<{ name: string; value: string; inline: boolean }> = [];
   if (typeof price === "number") {
     fields.push({ name: "Prix", value: `${(price / 100).toFixed(2)} €`, inline: true });
@@ -105,12 +107,19 @@ function buildDiscordMessage(event: string, payload: Record<string, unknown>) {
     : event === "listing.price_changed" ? DISCORD_COLORS.priceDrop
     : event.includes("failed") || event.includes("dead") ? DISCORD_COLORS.error
     : DISCORD_COLORS.message;
+
+  const description =
+    payload["message"] ? String(payload["message"])
+    : body ? String(body).trim()
+    : undefined;
+
   return {
     embeds: [
       {
         title: `[${event}] ${title ?? ""}`.trim(),
         url,
-        description: payload["message"] ? String(payload["message"]) : undefined,
+        description,
+        image: image ? { url: image } : undefined,
         color,
         fields,
         timestamp: new Date().toISOString(),

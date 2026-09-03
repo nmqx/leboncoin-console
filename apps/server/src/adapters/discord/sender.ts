@@ -14,6 +14,8 @@ export interface DiscordMessage {
     url?: string;
     color?: number;
     fields?: DiscordEmbedField[];
+    image?: { url: string };
+    thumbnail?: { url: string };
     footer?: { text: string };
     timestamp?: string;
   }>;

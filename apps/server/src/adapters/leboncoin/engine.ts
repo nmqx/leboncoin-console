@@ -99,6 +99,8 @@ export class FixtureEngine implements SearchEngine {
             priceCents: o.listing.priceCents ?? null,
             url: o.listing.url,
             city: o.listing.location?.city ?? null,
+            body: o.listing.body ?? null,
+            image: o.listing.images?.[0] ?? null,
           });
         }
       } else if (o.priceChanged) {
@@ -116,6 +118,8 @@ export class FixtureEngine implements SearchEngine {
             newPriceCents: o.listing.priceCents ?? null,
             title: o.listing.title,
             url: o.listing.url,
+            body: o.listing.body ?? null,
+            image: o.listing.images?.[0] ?? null,
           });
         }
       }

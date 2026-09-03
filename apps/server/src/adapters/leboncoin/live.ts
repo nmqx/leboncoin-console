@@ -174,6 +174,45 @@ export function parseNextData(html: string): SearchResult {
   return { ads: sd.ads ?? [], total: sd.total ?? sd.ads?.length ?? 0, maxPages: sd.max_pages ?? 1 };
 }
 
+/**
+ * Garde-fou deterministe anti-mauvais-modele (ex : une RTX 3080 remontee
+ * par LBC dans une veille "rtx 2080 ti"). Le filtre LLM est la reference
+ * semantique mais il echoue en mode ouvert (tout est garde en cas d'erreur
+ * ou de reponse illisible). Ce test ne rejette que les numeros incompatibles :
+ *  - le numero de modele de la requete (ex 2080) doit apparaitre dans le titre ;
+ *  - si la requete exige Ti / Super, le titre doit les contenir aussi.
+ * Une annonce "2080 ti" (sans "rtx") passe : seuls les jetons discriminants
+ * (numero + suffixes) sont exiges, jamais "rtx"/"geforce".
+ */
+export function modelMatchesQuery(query: string, title: string): boolean {
+  const q = query.toLowerCase();
+  const t = title.toLowerCase();
+  const qNum = q.match(/\b(\d{3,4})\b/);
+  if (!qNum) return true;
+  const num = qNum[1]!;
+  if (!t.includes(num)) return false;
+  const qRest = q.replace(num, " ");
+  const tRest = t.replace(num, " ");
+  const tiRe = /(^|[^a-z])ti([^a-z]|$)/;
+  const superRe = /(^|[^a-z])super([^a-z]|$)/;
+  if (tiRe.test(qRest) && !tiRe.test(tRest)) return false;
+  if (superRe.test(qRest) && !superRe.test(tRest)) return false;
+  return true;
+}
+
+/** Fraicheur exigee pour un drop Discord : seules les annonces VRAIMENT
+ *  nouvelles (publiees dans les dernieres FRESH_HOURS) declenchent une alerte.
+ *  Les vieilles annonces bumpees/remontees par LBC sont stockees
+ *  silencieusement (jamais de drop sur du vieux). */
+const FRESH_HOURS = 24;
+export function isFreshListing(l: { publishedAt?: string }): boolean {
+  if (!l.publishedAt) return false;
+  const ts = Date.parse(l.publishedAt);
+  if (Number.isNaN(ts)) return false;
+  const now = Date.now();
+  return ts <= now + 3600000 && now - ts <= FRESH_HOURS * 3600000;
+}
+
 // ---------------------------------------------------------------------------
 // URL de recherche — paramètres validés en amont : text, category, price, tri date
 // ---------------------------------------------------------------------------
@@ -433,13 +472,18 @@ export class LiveEngine implements SearchEngine {
           const dep = listing.location?.department;
           if (dep && !spec.locations.departments.includes(dep)) continue;
         }
-        newOnPage++;
-        collected.push({ ...listing, score: relevanceScore(spec.query, listing) });
         const ts = listing.publishedAt ? Date.parse(listing.publishedAt) : Number.NaN;
         if (!Number.isNaN(ts)) {
+          // Rejet strict des annonces publiées il y a plus de MAX_AGE_DAYS (ex: 14 jours) :
+          // une veille en temps réel ne doit JAMAIS alerter sur une annonce vieille de plusieurs mois
+          if (Date.now() - ts > MAX_AGE_DAYS * 86_400_000) {
+            continue;
+          }
           oldestSeen = Math.min(oldestSeen, ts);
           newestOnPage = Math.max(newestOnPage, ts);
         }
+        newOnPage++;
+        collected.push({ ...listing, score: relevanceScore(spec.query, listing) });
       }
 
       // arrêt chronologique VRAI : en tri date desc, si la plus RÉCENTE de la
@@ -478,6 +522,17 @@ export class LiveEngine implements SearchEngine {
       void before;
     }
 
+    // garde-fou anti-mauvais-modele (deterministe, meme si le LLM echoue ouvert)
+    if (spec.filterJunk !== false) {
+      withDeal = withDeal.filter((l) => {
+        if (!modelMatchesQuery(spec.query, l.title)) {
+          junked++;
+          return false;
+        }
+        return true;
+      });
+    }
+
     // filtre sémantique LLM : un seul appel groupé (Just Dance ≠ console…)
     let llmFiltered = 0;
     let llmApplied = false;
@@ -505,7 +560,9 @@ export class LiveEngine implements SearchEngine {
     const outcomes = this.deps.repos.listings.upsertMany(withDeal);
     let newCount = 0;
     for (const o of outcomes) {
-      if (o.isNew) {
+      // NEW-ONLY : un drop Discord = annonce fraichement publiee. Le vieux
+      // (bump LBC, reprise apres quarantaine) est stocke sans alerter.
+      if (o.isNew && isFreshListing(o.listing)) {
         newCount++;
         this.deps.bus.publish("listing.created", {
           listingId: o.listing.id, title: o.listing.title,
@@ -513,9 +570,13 @@ export class LiveEngine implements SearchEngine {
         });
         if (watchId !== undefined && watchId !== null) {
           this.deps.repos.webhooks.enqueueForWatch("listing.created", watchId, {
-            listingId: o.listing.id, title: o.listing.title,
-            priceCents: o.listing.priceCents ?? null, url: o.listing.url,
+            listingId: o.listing.id,
+            title: o.listing.title,
+            priceCents: o.listing.priceCents ?? null,
+            url: o.listing.url,
             city: o.listing.location?.city ?? null,
+            body: o.listing.body ?? null,
+            image: o.listing.images?.[0] ?? null,
           });
         }
       } else if (o.priceChanged) {
@@ -523,10 +584,16 @@ export class LiveEngine implements SearchEngine {
           listingId: o.listing.id, previousPriceCents: o.previousPriceCents,
           newPriceCents: o.listing.priceCents ?? null, jobId, correlationId,
         });
-        if (watchId !== undefined && watchId !== null) {
+        // NEW-ONLY : pas de drop sur baisse de prix d'une vieille annonce.
+        if (watchId !== undefined && watchId !== null && isFreshListing(o.listing)) {
           this.deps.repos.webhooks.enqueueForWatch("listing.price_changed", watchId, {
-            listingId: o.listing.id, previousPriceCents: o.previousPriceCents,
-            newPriceCents: o.listing.priceCents ?? null, title: o.listing.title, url: o.listing.url,
+            listingId: o.listing.id,
+            previousPriceCents: o.previousPriceCents,
+            newPriceCents: o.listing.priceCents ?? null,
+            title: o.listing.title,
+            url: o.listing.url,
+            body: o.listing.body ?? null,
+            image: o.listing.images?.[0] ?? null,
           });
         }
       }

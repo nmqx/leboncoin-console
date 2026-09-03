@@ -91,7 +91,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     LLM_MODEL: llmModel,
     LBC_PROXY: parsed.LBC_PROXY,
     retentionDays: { listings: 180, messages: 90, logs: 30 },
-    scheduler: { cadenceMinutes: 10, jitterMaxSeconds: 90 },
+    scheduler: { cadenceMinutes: 10, jitterMaxSeconds: 15 },
     replyLimits: { perHourPerConversation: 10, perDay: 100, debounceSeconds: 20 },
     anysolver: { dailyChallengeBudget: 100, maxAttemptsPerJob: 2 },
   };
