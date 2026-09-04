@@ -95,8 +95,9 @@ async function main(): Promise<void> {
           getProxy: () => getProxyFor("search"),
           // repli DataDome : proxy stocké hors politique de routage
           getBackupProxy: () => storedProxy(),
+          // Repli payant uniquement : le chemin nominal est la rotation
+          // d'empreinte TLS, en direct, sans compte ni proxy.
           getAnysolverKey: () => decryptSecret("anysolver_key"),
-          getSessionProfile,
           // filtre sémantique llmFilter : config LLM du coffre si présente
           getLlm: async () => {
             const apiKey = await decryptSecret("llm_key");

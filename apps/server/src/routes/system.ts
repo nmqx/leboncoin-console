@@ -118,13 +118,15 @@ export function systemRoutes(app: FastifyInstance, ctx: AppCtx, deps: SystemDeps
     const proxy = body.useProxy ? await deps.storedProxy() : null;
     if (body.useProxy && !proxy) throw badRequest("Proxy demandé mais aucun proxy stocké/configuré");
 
-    const sharedTransport = body.freshSession ? null : new WreqTransport({ proxy: proxy ?? undefined });
+    // bypassPacer : ce diagnostic mesure justement le comportement en rafale,
+    // il doit court-circuiter le cadenceur global (aucune veille ne le fait).
+    const sharedTransport = body.freshSession ? null : new WreqTransport({ proxy: proxy ?? undefined, bypassPacer: true });
     const spec: SearchSpec = { query: body.query, maxItems: 35, filterJunk: true, llmFilter: false };
     const url = buildSearchUrl(spec, 0);
     const results: Array<{ status: number; latencyMs: number; datadome: boolean; challengeKind: string | null; items: number | null }> = [];
 
     for (let i = 0; i < body.count; i++) {
-      const transport = sharedTransport ?? new WreqTransport({ proxy: proxy ?? undefined });
+      const transport = sharedTransport ?? new WreqTransport({ proxy: proxy ?? undefined, bypassPacer: true });
       const t0 = Date.now();
       try {
         const res = await transport.request({ url });

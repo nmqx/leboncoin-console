@@ -17,6 +17,8 @@ import { logger } from "../logger.js";
  */
 export class AutoResponder {
   private busy = false;
+  /** Le « pas de session » n'est journalisé qu'une fois, pas à chaque tick. */
+  private inboxUnavailableLogged = false;
 
   constructor(
     private readonly deps: {
@@ -27,7 +29,7 @@ export class AutoResponder {
     }
   ) {}
 
-  async syncOnly(): Promise<{ synced: number; created: number; error?: string }> {
+  async syncOnly(): Promise<{ synced: number; created: number; error?: string; skipped?: string }> {
     try {
       const items = await this.deps.messaging.fetchConversations();
       let created = 0;
@@ -51,6 +53,19 @@ export class AutoResponder {
       return { synced: items.length, created };
     } catch (err) {
       const msg = (err as Error).message;
+      const code = (err as Error & { code?: string }).code;
+      // Pas de compte connecté / pas de contrat capturé n'est PAS une panne :
+      // la messagerie est une fonction à part, la veille tourne sans compte.
+      // On le dit une fois, puis on se tait — sinon le log tourne en boucle à
+      // chaque tick et noie les vraies erreurs.
+      if (code === "no_session" || code === "no_captured_contract") {
+        if (!this.inboxUnavailableLogged) {
+          this.inboxUnavailableLogged = true;
+          logger.info({ code }, "messagerie inactive (aucune session Leboncoin) — veilles non affectées");
+        }
+        return { synced: 0, created: 0, skipped: code };
+      }
+      this.inboxUnavailableLogged = false;
       logger.warn({ err: msg }, "auto-sync inbox échouée");
       return { synced: 0, created: 0, error: msg };
     }

@@ -34,9 +34,9 @@ $LBC_MODE="live"; npm run dev:server         # mode live avec vraies annonces
 
 Console : http://localhost:5173 en dev ou http://127.0.0.1:8787 en build.
 
-Premiere fois en live : Systeme puis Ouvrir Chrome et se connecter. Connecte toi et l import est automatique, aucun message a envoyer. La session se rafraichit seule. Les reglages mode, base, gateway LLM persistent dans console.config.json qui est ignore par git.
+Premiere fois en live : rien a faire, les veilles tournent sans compte (recherche publique, empreinte TLS tournante). La connexion Chrome n est utile QUE pour la messagerie : Systeme puis Ouvrir Chrome et se connecter, l import est automatique et la session se rafraichit seule. Les reglages mode, base, gateway LLM persistent dans console.config.json qui est ignore par git.
 
-Optionnel : cle LLM dans Systeme puis LLM pour activer filtre semantique et brouillons, proxy pour la recherche, AnySolver si DataDome bloque.
+Optionnel : cle LLM dans Systeme puis LLM pour activer filtre semantique et brouillons. Le proxy n est plus utile a la recherche (direct, 0 Mo) et AnySolver n est qu un repli jamais atteint en pratique.
 
 ## Webhooks par veille
 

@@ -5,11 +5,11 @@ import type { ProxyConfig } from "../../domain/proxy.js";
 import { relevanceScore } from "../../domain/scoring.js";
 import { isJunkListing } from "../../domain/junk.js";
 import { WreqTransport } from "./wreq-transport.js";
+import type { Fingerprint } from "./fingerprint.js";
 import { classifyDataDome } from "./datadome.js";
 import type { EngineRunResult, SearchEngine } from "./engine.js";
 import { AnySolverClient, type DataDomeTaskType } from "../anysolver/client.js";
 import { LlmClient, filterByRelevance } from "../llm/gemini.js";
-import { jwtExpiry } from "../../session.js";
 import { logger } from "../../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -267,13 +267,20 @@ export interface LiveEngineDeps {
   getProxy(): Promise<ProxyConfig | null>;
   /** Proxy stocké hors politique : repli automatique sur DataDome en direct. */
   getBackupProxy?(): Promise<ProxyConfig | null>;
+  /** Repli payant, jamais le chemin nominal : la rotation d'empreinte suffit. */
   getAnysolverKey(): Promise<string | null>;
-  getSessionProfile(): Promise<{ userAgent: string; cookies: Record<string, string> } | null>;
   /** Config LLM pour le filtre sémantique (llmFilter). Null = non configuré. */
   getLlm?(): Promise<{ baseUrl: string; apiKey: string; model: string } | null>;
 }
 
 const MAX_SOLVE_ATTEMPTS_PER_JOB = 2;
+/**
+ * Rotations d'empreinte TLS tentées sur un 403 avant d'envisager un solveur.
+ * Mesuré le 04/09/2026 en direct : 9 empreintes modernes distinctes → 9/9 en
+ * 200, `chrome_131` figé → 4/4 en 403. Un 403 est donc d'abord une signature
+ * brûlée, pas un captcha à résoudre : on change de signature avant de payer.
+ */
+const MAX_FINGERPRINT_ROTATIONS = 3;
 const MAX_AGE_DAYS = 14;
 
 export class LiveEngine implements SearchEngine {
@@ -290,8 +297,26 @@ export class LiveEngine implements SearchEngine {
     solveAttempts: { count: number },
     proxy: ProxyConfig | null
   ): Promise<string> {
-    const res = await transport.request({ url });
+    let res = await transport.request({ url });
     if (res.status === 200) return res.body;
+
+    // Un 403 DataDome se traite d'abord par une AUTRE empreinte TLS : la
+    // signature courante est brûlée, pas l'IP, et surtout pas le compte.
+    // Le cadenceur global espace déjà chaque tentative — pas de sleep ici.
+    const burned: Fingerprint[] = [];
+    for (let i = 0; i < MAX_FINGERPRINT_ROTATIONS && res.status === 403; i++) {
+      burned.push(transport.profile);
+      const next = transport.rotate(burned);
+      this.deps.bus.publish("fingerprint.rotated", {
+        from: `${burned[burned.length - 1]!.browser}/${burned[burned.length - 1]!.os}`,
+        to: `${next.browser}/${next.os}`,
+        attempt: i + 1,
+        correlationId,
+      });
+      logger.info({ to: `${next.browser}/${next.os}`, attempt: i + 1 }, "403 LBC — rotation d'empreinte");
+      res = await transport.request({ url });
+      if (res.status === 200) return res.body;
+    }
 
     const challenge = classifyDataDome({ status: res.status, url: websiteUrl, body: res.body });
     if (!challenge) {
@@ -302,21 +327,18 @@ export class LiveEngine implements SearchEngine {
     });
 
     if (challenge.kind === "abandon") {
-      if (challenge.reason.startsWith("challenge inconnu") && solveAttempts.count < MAX_SOLVE_ATTEMPTS_PER_JOB) {
-        // 403 sans URL identifiable : observé transitoire chez DataDome —
-        // une unique reprise après backoff avant d'abandonner (jamais de boucle).
-        solveAttempts.count++;
-        await new Promise((r) => setTimeout(r, 1500 + Math.floor(Math.random() * 1500)));
-        const retry = await transport.request({ url });
-        if (retry.status === 200) return retry.body;
-      }
-      const err = new Error(`DataDome ${challenge.reason}`);
+      // Les reprises transitoires sont déjà couvertes par la rotation
+      // d'empreinte ci-dessus (chacune espacée par le cadenceur) : réessayer
+      // ici avec la MÊME signature ne ferait que confirmer le blocage.
+      const err = new Error(`DataDome ${challenge.reason} (${MAX_FINGERPRINT_ROTATIONS} empreintes essayées)`);
       (err as Error & { code?: string }).code = "datadome_rotate_ip";
       throw err;
     }
     if (!anysolverKey) {
+      // Chemin nominal : la veille tourne sans solveur. On n'arrive ici que si
+      // la rotation d'empreinte a échoué ET qu'aucune clé n'est stockée.
       const err = new Error(
-        `DataDome ${challenge.kind} rencontré et aucune clé AnySolver configurée — écran Système`
+        `DataDome ${challenge.kind} après ${MAX_FINGERPRINT_ROTATIONS} empreintes — aucune clé AnySolver en repli`
       );
       (err as Error & { code?: string }).code = "datadome_no_solver";
       throw err;
@@ -335,7 +357,7 @@ export class LiveEngine implements SearchEngine {
           ? "DataDomeInterstitialCookieTask"
           : "DataDomeSliderCookieTask") as DataDomeTaskType,
         websiteURL: websiteUrl,
-        userAgent: (transport as unknown as { userAgent: string }).userAgent,
+        userAgent: transport.userAgent,
         // même proxy que le transport : le cookie datadome est lié au couple IP+UA
         ...(proxy
           ? { proxy: { type: "http", host: proxy.host, port: proxy.port, username: proxy.username, password: proxy.password } }
@@ -358,35 +380,25 @@ export class LiveEngine implements SearchEngine {
     throw err;
   }
 
+  /**
+   * La recherche Leboncoin est PUBLIQUE : aucun compte, aucun cookie de
+   * session, aucun bearer n'est requis pour la veille — et en injecter est
+   * contre-productif (un `luat` vieillissant provoque des 403 secs, sans
+   * captcha, là où la même empreinte nue passe). La connexion ne sert qu'à la
+   * messagerie ; elle ne conditionne plus aucune veille.
+   */
   async run(jobId: string, spec: SearchSpec, correlationId: string, watchId?: number | null): Promise<EngineRunResult> {
     const primary = await this.deps.getProxy();
     let lastErr: unknown;
     try {
-      return await this.runOnce(jobId, spec, correlationId, primary, true, watchId);
+      return await this.runOnce(jobId, spec, correlationId, primary, watchId);
     } catch (err) {
       lastErr = err;
-      let code = (err as Error & { code?: string }).code ?? "";
+      const code = (err as Error & { code?: string }).code ?? "";
 
-      // DataDome avec le profil de session → repli empreinte propre (sans
-      // cookies importés). Mesuré : un luat vieillissant déclenche des 403
-      // sans captcha URL alors que le même fingerprint nu passe.
-      const hasSession = await this.deps
-        .getSessionProfile()
-        .then((s) => s !== null)
-        .catch(() => false);
-      if (code.startsWith("datadome") && hasSession) {
-        this.deps.bus.publish("challenge.failover_clean", { jobId, code, correlationId });
-        logger.warn({ jobId, code }, "DataDome avec profil de session — repli empreinte propre");
-        try {
-          return await this.runOnce(jobId, spec, correlationId, primary, false, watchId);
-        } catch (err2) {
-          lastErr = err2;
-          code = (err2 as Error & { code?: string }).code ?? "engine_error";
-        }
-      }
-
-      // Toujours en échec → unique repli par le proxy stocké (hors politique),
-      // puis quarantaine si ça échoue encore. Jamais de boucle.
+      // Dernier repli, seulement si un proxy est stocké hors politique de
+      // routage : la rotation d'empreinte a déjà échoué en direct. Jamais de
+      // boucle — un échec ici part en quarantaine avec son diagnostic.
       if (
         primary === null &&
         code.startsWith("datadome") &&
@@ -399,11 +411,11 @@ export class LiveEngine implements SearchEngine {
           });
           logger.warn({ jobId, code }, "DataDome en direct — repli proxy");
           try {
-            return await this.runOnce(jobId, spec, correlationId, backup, false, watchId);
+            return await this.runOnce(jobId, spec, correlationId, backup, watchId);
           } catch (err3) {
             lastErr = err3;
-            code = (err3 as Error & { code?: string }).code ?? "engine_error";
-            throw Object.assign(new Error(`DataDome : tous les replis épuisés (${code})`), { code });
+            const code3 = (err3 as Error & { code?: string }).code ?? "engine_error";
+            throw Object.assign(new Error(`DataDome : tous les replis épuisés (${code3})`), { code: code3 });
           }
         }
       }
@@ -416,7 +428,6 @@ export class LiveEngine implements SearchEngine {
     spec: SearchSpec,
     correlationId: string,
     proxy: ProxyConfig | null,
-    useSession: boolean,
     watchId?: number | null
   ): Promise<EngineRunResult> {
     // Sans texte, /recherche renvoie le flux générique national (catégories
@@ -424,17 +435,14 @@ export class LiveEngine implements SearchEngine {
     if (!spec.query.trim() || spec.query.trim() === "toutes annonces") {
       throw new Error("Requête vide : le flux générique n'est pas scrapé — précisez un texte de recherche");
     }
-    // Session importée : cookies JWT expirés exclus (un luat périmé déclenche
-    // un blocage DataDome sec, sans captcha). La recherche est publique — la
-    // session n'apporte que l'empreinte, jamais l'autorisation.
-    const rawSession = await this.deps.getSessionProfile();
-    const session = useSession && rawSession ? freshenSession(rawSession) : null;
+    // Aucun cookie, aucun UA imposé : le transport tire une empreinte moderne
+    // au sort et en dérive son propre User-Agent cohérent (cf. fingerprint.ts).
     const anysolverKey = await this.deps.getAnysolverKey();
-    const transport = new WreqTransport({
-      proxy: proxy ?? undefined,
-      userAgent: session?.userAgent,
-      cookies: session?.cookies,
-    });
+    const transport = new WreqTransport({ proxy: proxy ?? undefined });
+    logger.info(
+      { jobId, profile: `${transport.profile.browser}/${transport.profile.os}`, proxy: proxy ? `${proxy.host}:${proxy.port}` : "direct" },
+      "veille LBC : empreinte tirée"
+    );
 
     const maxItems = Math.min(spec.maxItems ?? 200, 1000);
     const solveAttempts = { count: 0 };
@@ -448,9 +456,10 @@ export class LiveEngine implements SearchEngine {
     // aucune nouvelle annonce (flux qui bouge, param ignoré) arrête la boucle.
     let serverMaxPages = 1;
     for (let page = 1; page <= serverMaxPages; page++) {
-      // respiration entre pages : les rafales déclenchent DataDome même avec
-      // la bonne empreinte (constaté au stress test : 1×200 puis 403 en série)
-      if (page > 1) await new Promise((r) => setTimeout(r, 700 + Math.floor(Math.random() * 700)));
+      // L'espacement entre pages n'est plus décidé ici : le cadenceur global
+      // (`pacer.ts`) sérialise et espace TOUTES les requêtes leboncoin.fr,
+      // veilles confondues — sinon 4 veilles paginant en parallèle refont
+      // exactement la rafale que DataDome détecte.
       const url = buildSearchUrl(spec, page);
       const html = await this.fetchPage(
         transport, url, "https://www.leboncoin.fr/", anysolverKey, correlationId, solveAttempts, proxy
@@ -607,30 +616,4 @@ function medianOf(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-}
-
-/**
- * Retire les cookies JWT expirés du bundle de session. Un cookie vieillissant
- * est pire qu'aucun cookie : DataDome bloque sec (403 sans captcha URL) sur
- * une session périmée alors que la même empreinte sans cookies passe.
- */
-export function freshenSession<T extends { userAgent: string; cookies: Record<string, string> }>(
-  session: T
-): T {
-  const cookies: Record<string, string> = {};
-  let dropped = false;
-  for (const [name, value] of Object.entries(session.cookies)) {
-    if (!value.includes(".")) {
-      cookies[name] = value;
-      continue;
-    }
-    const exp = jwtExpiry(value);
-    if (exp && exp.getTime() < Date.now()) {
-      dropped = true;
-      continue;
-    }
-    cookies[name] = value;
-  }
-  if (dropped) logger.warn("cookies de session expirés exclus de la recherche");
-  return { ...session, cookies };
 }

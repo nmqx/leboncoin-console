@@ -522,3 +522,54 @@ en priorité pendant une session.
       (vitest, zéro réseau), puis live via les procédures §12.
 - [ ] Règle d'or du projet : **un 403 est résolu ou remonté en erreur
       structurée — jamais converti en liste vide.**
+
+---
+
+## 2026-09-04 — DataDome : c'était l'empreinte, pas l'IP ni le compte
+
+### Ce qui bloquait
+`WreqTransport` figeait `browser: "chrome_131"` **et** un User-Agent Chrome/131
+en dur. En septembre 2026 ce profil a ~2 ans de retard : JA4 + UA suffisent.
+Les 4 veilles partaient en quarantaine (`DataDome : tous les replis épuisés`)
+alors que ni l'IP, ni l'absence de compte, ni l'absence de solveur n'y étaient
+pour quoi que ce soit.
+
+### La mesure (serveur, direct, sans proxy / session / solveur)
+| profil | résultat |
+| :-- | :-- |
+| `chrome_131` (figé, l'ancien) | **4/4 → 403**, page de blocage 774 o |
+| 9 profils modernes, un par requête | **9/9 → 200**, `__NEXT_DATA__` complet, 35 annonces, p50 ≈ 250 ms |
+
+### Ce qui a changé
+- **`adapters/leboncoin/fingerprint.ts`** — pool de 9 empreintes modernes
+  (chrome 145-149, firefox 150/151, edge 148, safari 26.4 ; windows/macos/linux),
+  tirage au sort par job avec mémoire des 3 dernières. `userAgentFor()` dérive
+  l'UA du profil via `getEmulationHeaders()` : plus **jamais** d'UA en dur, un UA
+  qui ne colle pas au profil TLS est précisément ce que DataDome cherche.
+- **`adapters/leboncoin/pacer.ts`** — cadenceur global : toutes les requêtes
+  leboncoin.fr sérialisées, espacées de `LBC_MIN_GAP_MS` (9 s) + jitter
+  `LBC_GAP_JITTER_MS` (0-6 s). 4 veilles paginant en parallèle formaient des
+  rafales — c'est le motif qui se lit, bien avant le volume. Le sleep par page
+  de `runOnce` a disparu : l'espacement appartient au processus, pas à l'appelant.
+  `bypassPacer: true` existe pour le stress test (qui mesure justement la rafale)
+  et pour lui seul.
+- **`live.ts`** — un 403 déclenche 3 rotations d'empreinte avant d'envisager
+  AnySolver. La reprise « même signature après backoff » a été retirée : elle ne
+  faisait que confirmer le blocage.
+- **`live.ts`** — la recherche ne touche plus à la session. Le chemin
+  « session d'abord, repli empreinte propre » est supprimé, `LiveEngineDeps` n'a
+  plus `getSessionProfile`. La recherche est publique et un `luat` vieillissant
+  était un handicap net.
+- **`jobs/auto-responder.ts`** — `no_session` / `no_captured_contract` ne sont
+  plus des pannes : log `info` une seule fois, puis silence. La veille n'en
+  dépend pas.
+
+### Vérifié en prod (2 cycles, 12:44 et 12:47 UTC)
+`4/4 watches → completed`, 0 quarantaine, 0 challenge, une empreinte différente
+par run, espacement 10-17 s observé. AnySolver posé en repli (solde 5,0055 $),
+jamais tiré.
+
+### Point d'usure connu
+Le pool de `fingerprint.ts` vieillit au rythme des sorties Chrome — c'est
+exactement ce qui a tué `chrome_131`. Le remonter (garder les 4-5 dernières
+majeures) fait partie de l'entretien, sinon les 403 reviendront.
