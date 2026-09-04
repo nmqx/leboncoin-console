@@ -651,3 +651,19 @@ Piege corrige a l'ecriture : `webhook_deliveries.created_at` est en ISO8601
 (`...T...Z`) et SQLite compare lexicalement — il faut normaliser le `T` en
 espace et retirer le `Z` avant de comparer a `datetime('now', ...)`, sinon le
 filtre temporel ne filtre rien.
+
+## 2026-09-04 (correction) — le materiel defectueux n'est PAS du bruit
+
+Decision de l'operateur, contre mon reflexe : une carte HS / defectueuse /
+pour pieces est une **opportunite** quand on sait reparer, souvent le meilleur
+rapport prix/valeur du flux. La filtrer etait une perte, pas un gain.
+
+`DEFECTIVE_PARTS_RE` ne rejette plus rien par defaut. La detection reste
+disponible via `defectReason()` (elle couvre maintenant les deux genres :
+`d[eé]fectueux` ET `d[eé]fectueuse`, plus « ne fonctionne plus/pas », « ne
+marche plus/pas », « a reparer » — le masculin manquait, `d[eé]fectueuse?`
+n'etant pas une gestion du genre mais un « e » optionnel). Rejet reactivable
+par `LBC_FILTER_DEFECTIVE=1`.
+
+Ce qui reste filtre : prix <= 1 EUR, echange/troc/don, annonces de recherche,
+accessoires evidents (waterblock, boite vide, riser, ventilo seul...).
