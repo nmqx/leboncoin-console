@@ -200,17 +200,58 @@ export function modelMatchesQuery(query: string, title: string): boolean {
   return true;
 }
 
-/** Fraicheur exigee pour un drop Discord : seules les annonces VRAIMENT
- *  nouvelles (publiees dans les dernieres FRESH_HOURS) declenchent une alerte.
- *  Les vieilles annonces bumpees/remontees par LBC sont stockees
- *  silencieusement (jamais de drop sur du vieux). */
-const FRESH_HOURS = 24;
+/**
+ * Fraicheur exigee pour un drop Discord.
+ *
+ * Le seuil etait de 24 h, ce qui n'est pas une veille temps reel : toute
+ * annonce publiee dans la journee et vue pour la premiere fois declenchait une
+ * alerte. Mesure du 04/09/2026 sur les alertes reellement envoyees : la
+ * mediane est a 0-2 min (le cas nominal, cadence 3 min), mais la queue montait
+ * a 55, 62, 111, 159 et 236 min. Ces retards viennent de deux sources :
+ *   - un redemarrage ou une fenetre de quarantaine : au retour, tout ce qui
+ *     est apparu pendant l'absence est « nouveau » pour nous ;
+ *   - un bump Leboncoin : une vieille annonce remonte en tete du flux trie par
+ *     date alors que `first_publication_date` reste ancien.
+ * Dans les deux cas l'annonce n'est plus une opportunite : elle a ete vue par
+ * tout le monde depuis des heures.
+ *
+ * Choix du seuil, mesure sur 7 jours (delai entre publication et premiere
+ * detection, toutes annonces confondues) :
+ *
+ *     0-2 min    34      <- cas nominal
+ *     3-5 min    16
+ *     6-10 min    5
+ *     11-20 min   2
+ *     21-45 min   0      <- TROU
+ *     46-120 min  5      <- reprise apres coupure / bump LBC
+ *     2-24 h     28
+ *     > 24 h     28
+ *
+ * La distribution est bimodale avec un trou franc a zero entre 21 et 45 min :
+ * en dessous ce sont de vraies prises (parfois tardives, un cycle qui traine),
+ * au-dessus c'est du rattrapage ou un bump. 20 min tombe exactement dans ce
+ * trou — c'est la coupure que les donnees designent, pas un chiffre choisi au
+ * jugé. Consequence assumee : une annonce de 15 min alerte encore, parce que
+ * c'est statistiquement une vraie prise et non un bump. Reglable sans
+ * rebuild : LBC_FRESH_MINUTES.
+ */
+const FRESH_MINUTES = Math.max(1, Number(process.env["LBC_FRESH_MINUTES"] ?? 20));
 export function isFreshListing(l: { publishedAt?: string }): boolean {
   if (!l.publishedAt) return false;
   const ts = Date.parse(l.publishedAt);
   if (Number.isNaN(ts)) return false;
   const now = Date.now();
-  return ts <= now + 3600000 && now - ts <= FRESH_HOURS * 3600000;
+  // Tolerance vers le futur : LBC date en heure de Paris, un leger decalage
+  // d'horloge ne doit pas faire passer une annonce fraiche pour invalide.
+  return ts <= now + 3600000 && now - ts <= FRESH_MINUTES * 60_000;
+}
+
+/** Age d'une annonce en minutes, pour les journaux. */
+export function listingAgeMinutes(l: { publishedAt?: string }): number | null {
+  if (!l.publishedAt) return null;
+  const ts = Date.parse(l.publishedAt);
+  if (Number.isNaN(ts)) return null;
+  return Math.round((Date.now() - ts) / 60_000);
 }
 
 // ---------------------------------------------------------------------------
@@ -568,9 +609,16 @@ export class LiveEngine implements SearchEngine {
 
     const outcomes = this.deps.repos.listings.upsertMany(withDeal);
     let newCount = 0;
+    const staleSkipped: Array<{ id: string; ageMin: number | null }> = [];
     for (const o of outcomes) {
       // NEW-ONLY : un drop Discord = annonce fraichement publiee. Le vieux
       // (bump LBC, reprise apres quarantaine) est stocke sans alerter.
+      if (o.isNew && !isFreshListing(o.listing)) {
+        // Stockee sans alerter : reprise apres coupure, ou bump LBC d'une
+        // vieille annonce. On le compte pour que ca se voie dans les journaux
+        // au lieu de disparaitre en silence.
+        staleSkipped.push({ id: o.listing.id, ageMin: listingAgeMinutes(o.listing) });
+      }
       if (o.isNew && isFreshListing(o.listing)) {
         newCount++;
         this.deps.bus.publish("listing.created", {
@@ -606,6 +654,15 @@ export class LiveEngine implements SearchEngine {
           });
         }
       }
+    }
+    if (staleSkipped.length > 0) {
+      logger.info(
+        { jobId, count: staleSkipped.length, freshMinutes: FRESH_MINUTES, items: staleSkipped.slice(0, 5) },
+        "annonces nouvelles mais trop anciennes — stockées sans alerte"
+      );
+      this.deps.bus.publish("listing.stale_skipped", {
+        jobId, correlationId, count: staleSkipped.length, freshMinutes: FRESH_MINUTES,
+      });
     }
     logger.info({ jobId, found: withDeal.length, collected: collected.length, newCount, pages }, "engine live terminé");
     return { found: withDeal.length, newCount, pageCount: pages, listingIds: withDeal.map((l) => l.id) };

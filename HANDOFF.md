@@ -573,3 +573,47 @@ jamais tiré.
 Le pool de `fingerprint.ts` vieillit au rythme des sorties Chrome — c'est
 exactement ce qui a tué `chrome_131`. Le remonter (garder les 4-5 dernières
 majeures) fait partie de l'entretien, sinon les 403 reviendront.
+
+## 2026-09-04 (suite) — fraicheur des drops : le seuil de 24 h etait faux
+
+Symptome : deux alertes RTX 3080 pour des annonces publiees 15 min et 4 h plus
+tot. `FRESH_HOURS = 24` laissait alerter tout ce qui avait moins dun jour et
+
+## 2026-09-04 (suite) — fraicheur des drops : le seuil de 24 h etait faux
+
+Symptome : deux alertes RTX 3080 pour des annonces publiees 15 min et 4 h plus
+tot. `FRESH_HOURS = 24` laissait alerter tout ce qui avait moins d'un jour et
+qu'on voyait pour la premiere fois.
+
+Deux sources de retard :
+- **reprise apres coupure ou quarantaine** : au retour, tout ce qui est apparu
+  pendant l'absence est « nouveau » pour nous ;
+- **bump Leboncoin** : une vieille annonce remonte en tete du flux trie par
+  date alors que `first_publication_date` reste ancien (c'est bien cette date
+  que porte `publishedAt`, pas `index_date` — verifie).
+
+Mesure du delai publication -> premiere detection, sur 7 jours :
+
+```
+  0-2 min    34      <- cas nominal
+  3-5 min    16
+  6-10 min    5
+  11-20 min   2
+  21-45 min   0      <- TROU
+  46-120 min  5      <- rattrapage / bump
+  2-24 h     28
+  > 24 h     28
+```
+
+Distribution bimodale avec un trou franc a zero entre 21 et 45 min. En dessous
+ce sont de vraies prises (parfois tardives quand un cycle traine), au-dessus
+c'est du rattrapage. **Seuil pose a 20 min** (`FRESH_MINUTES`, surchargeable
+par `LBC_FRESH_MINUTES`) : c'est la coupure que les donnees designent.
+
+Consequence assumee : une annonce de 15 min alerte encore, parce qu'elle est
+statistiquement une vraie prise et non un bump. Les 56 annonces des tranches
+2-24 h et > 24 h, elles, ne declenchent plus rien.
+
+Ce qui est ecarte pour anciennete est desormais **journalise** (`count`,
+`freshMinutes`, echantillon d'ids et d'ages) et publie sur le bus
+(`listing.stale_skipped`) : plus de suppression silencieuse.
