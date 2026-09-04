@@ -617,3 +617,37 @@ statistiquement une vraie prise et non un bump. Les 56 annonces des tranches
 Ce qui est ecarte pour anciennete est desormais **journalise** (`count`,
 `freshMinutes`, echantillon d'ids et d'ages) et publie sur le bus
 (`listing.stale_skipped`) : plus de suppression silencieuse.
+
+## 2026-09-04 (fin de journee) — « defectueux » passait au travers du filtre junk
+
+La collecte de metriques posee en fin de session a immediatement remonte un
+drop a 300 EUR sur « [Défectueux] NVIDIA RTX 3080 10GB Founders Edition ».
+
+Cause : `DEFECTIVE_PARTS_RE` contenait `d[eé]fectueuse?` — qui exige la chaine
+« defectueus » suivie d'un « e » optionnel. Ca couvre le FEMININ
+(« defectueuse ») mais pas le MASCULIN (« defectueux », qui finit par x). Un
+titre sur deux passait donc au travers d'un filtre cense exister depuis
+longtemps.
+
+Corrige : les deux genres, plus « ne fonctionne plus/pas », « ne marche
+plus/pas » et « a reparer ». 9/9 sur le jeu de test (5 rejets attendus,
+4 vraies annonces conservees, dont « RTX 3080 Ti Gaming X Trio »).
+
+Lecon : une classe de caracteres optionnelle en fin de mot (`e?`) n'est pas une
+gestion du genre. Verifier les deux formes, ou couper avant la terminaison.
+
+## Collecte de metriques horaire
+
+`/home/nrk/pegasus_health.sh`, en cron a la minute 5 de chaque heure, ecrit
+dans `/home/nrk/pegasus-health.log` :
+
+- LBC : veilles `completed`, quarantaines, rotations d'empreinte, annonces
+  ecartees pour anciennete, et **l'age de chaque drop de l'heure** (c'est la
+  metrique qui valide ou invalide le seuil de 20 min) ;
+- Hub : cycles FE 3/3 vs partiels, echecs FE, rate limits Amazon (503/429),
+  echecs LLM, compteurs omni.
+
+Piege corrige a l'ecriture : `webhook_deliveries.created_at` est en ISO8601
+(`...T...Z`) et SQLite compare lexicalement — il faut normaliser le `T` en
+espace et retirer le `Z` avant de comparer a `datetime('now', ...)`, sinon le
+filtre temporel ne filtre rien.
