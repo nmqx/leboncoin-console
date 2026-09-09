@@ -1,4 +1,5 @@
 import type { Listing, SearchSpec } from "@lbc/contracts";
+import { randomUUID } from "node:crypto";
 import type { Bus } from "../../bus.js";
 import type { Repos } from "../../repos.js";
 import type { ProxyConfig } from "../../domain/proxy.js";
@@ -6,6 +7,7 @@ import { relevanceScore } from "../../domain/scoring.js";
 import { isJunkListing } from "../../domain/junk.js";
 import { WreqTransport } from "./wreq-transport.js";
 import type { Fingerprint } from "./fingerprint.js";
+import type { TransportRequest } from "./transport.js";
 import { classifyDataDome } from "./datadome.js";
 import type { EngineRunResult, SearchEngine } from "./engine.js";
 import { AnySolverClient, type DataDomeTaskType } from "../anysolver/client.js";
@@ -154,7 +156,7 @@ export function normalizeAd(ad: RawAd, scrapedAt = new Date().toISOString()): Li
 }
 
 // ---------------------------------------------------------------------------
-// Extraction __NEXT_DATA__
+// Contrat de recherche public Leboncoin
 // ---------------------------------------------------------------------------
 
 export interface SearchResult {
@@ -163,15 +165,102 @@ export interface SearchResult {
   maxPages: number;
 }
 
-export function parseNextData(html: string): SearchResult {
-  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
-  if (!m) throw new Error("Page sans __NEXT_DATA__ — structure Leboncoin inattendue");
-  const data = JSON.parse(m[1]!) as {
-    props?: { pageProps?: { searchData?: { ads?: RawAd[]; total?: number; max_pages?: number } } };
+interface SearchPayload {
+  sort_by: "time";
+  sort_order: "desc";
+  limit: number;
+  offset: number;
+  inject_alu: true;
+  owner_type?: "private" | "pro";
+  filters: {
+    enums: Record<string, string[]>;
+    category?: { id: string };
+    keywords: { text: string };
+    ranges?: Record<string, { min?: number; max?: number }>;
+    location?: {
+      shippable?: true;
+      locations?: Array<{ locationType: "department"; department_id: string }>;
+    };
   };
-  const sd = data.props?.pageProps?.searchData;
-  if (!sd) throw new Error("pageProps.searchData absent — quarantaine plutôt que liste vide");
-  return { ads: sd.ads ?? [], total: sd.total ?? sd.ads?.length ?? 0, maxPages: sd.max_pages ?? 1 };
+}
+
+const FINDER_URL = "https://api.leboncoin.fr/finder/search";
+// Clé publique embarquée dans le bundle Web Leboncoin. Ce n'est pas un secret.
+const FINDER_API_KEY = "ba0c2dad52b3ec";
+const FINDER_PAGE_SIZE = 35;
+
+/** Construit le payload actuel de finder/search. `offset` est 0-based. */
+export function buildSearchPayload(spec: SearchSpec, page: number): SearchPayload {
+  const enums: Record<string, string[]> = {
+    ad_type: spec.adTypes?.length ? [...spec.adTypes] : ["offer"],
+  };
+  if (spec.urgent) enums["urgent"] = ["1"];
+
+  const ranges: Record<string, { min?: number; max?: number }> = {};
+  if (spec.priceCents?.min !== undefined || spec.priceCents?.max !== undefined) {
+    ranges["price"] = {
+      ...(spec.priceCents.min !== undefined ? { min: Math.round(spec.priceCents.min / 100) } : {}),
+      ...(spec.priceCents.max !== undefined ? { max: Math.round(spec.priceCents.max / 100) } : {}),
+    };
+  }
+  for (const [key, value] of Object.entries(spec.attributes ?? {})) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const range = value as { min?: number; max?: number };
+      if (range.min !== undefined || range.max !== undefined) {
+        ranges[key] = {
+          ...(range.min !== undefined ? { min: range.min } : {}),
+          ...(range.max !== undefined ? { max: range.max } : {}),
+        };
+      }
+    } else if (Array.isArray(value)) {
+      if (value.length > 0) enums[key] = value.map(String);
+    } else if (value !== undefined && value !== null && String(value).length > 0) {
+      enums[key] = [String(value)];
+    }
+  }
+
+  const departments = spec.locations?.departments?.filter(Boolean) ?? [];
+  const location = spec.shippable || departments.length > 0
+    ? {
+        ...(spec.shippable ? { shippable: true as const } : {}),
+        ...(departments.length > 0
+          ? { locations: departments.map((department_id) => ({ locationType: "department" as const, department_id })) }
+          : {}),
+      }
+    : undefined;
+
+  return {
+    sort_by: "time",
+    sort_order: "desc",
+    limit: FINDER_PAGE_SIZE,
+    offset: Math.max(0, page - 1) * FINDER_PAGE_SIZE,
+    inject_alu: true,
+    ...(spec.ownerTypes?.length === 1 ? { owner_type: spec.ownerTypes[0] } : {}),
+    filters: {
+      enums,
+      ...(spec.categoryIds?.[0] ? { category: { id: spec.categoryIds[0] } } : {}),
+      keywords: { text: spec.query.trim() },
+      ...(Object.keys(ranges).length > 0 ? { ranges } : {}),
+      ...(location ? { location } : {}),
+    },
+  };
+}
+
+export function parseSearchResponse(body: string): SearchResult {
+  let data: { ads?: RawAd[]; total?: number; max_pages?: number };
+  try {
+    data = JSON.parse(body) as typeof data;
+  } catch {
+    throw Object.assign(new Error("Réponse finder/search non JSON — contrat Leboncoin inattendu"), {
+      code: "lbc_schema_changed",
+    });
+  }
+  if (!Array.isArray(data?.ads)) {
+    throw Object.assign(new Error("finder/search sans tableau ads — contrat Leboncoin inattendu"), {
+      code: "lbc_schema_changed",
+    });
+  }
+  return { ads: data.ads, total: data.total ?? data.ads.length, maxPages: data.max_pages ?? 1 };
 }
 
 /**
@@ -271,6 +360,9 @@ export function buildSearchUrl(spec: SearchSpec, page: number): string {
   if (spec.ownerTypes?.length === 1) p.set("owner_type", spec.ownerTypes[0] === "pro" ? "pro" : "private");
   if (spec.shippable) p.set("shippable", "1");
   if (spec.urgent) p.set("urgent", "1");
+  if (spec.locations?.departments?.length) {
+    p.set("locations", spec.locations.departments.map((d) => `d_${d}`).join(","));
+  }
   if (spec.adTypes?.length === 1 && spec.adTypes[0] === "demand") p.set("ad_type", "demand");
   // attributs dynamiques : {min,max} → plage, scalaire/tableau → enum
   for (const [key, value] of Object.entries(spec.attributes ?? {})) {
@@ -285,11 +377,9 @@ export function buildSearchUrl(spec: SearchSpec, page: number): string {
       p.set(key, String(value));
     }
   }
-  // Tri chronologique strict : sort=date + order=desc. Re-mesuré le 22/08/2026 :
-  // le filtre texte s'applique normalement avec sort=date (total ~17,9k vs
-  // ~17,7k sans tri, annonces du jour en tête de page 1). L'ancien piège
-  // « tout paramètre sort= fait ignorer text » n'existe plus côté serveur.
-  p.set("sort", "date");
+  // Depuis septembre 2026, le tri chronologique public est `time`. `date`
+  // produit un payload limit=0 et finder/search répond 503.
+  p.set("sort", "time");
   p.set("order", "desc");
   // pagination : `page=N` 1-based (vérifié en live : page=2/3 → fenêtres
   // disjointes, 0 chevauchement ; `o` est IGNORÉ côté serveur — chaque
@@ -329,16 +419,16 @@ export class LiveEngine implements SearchEngine {
 
   constructor(private readonly deps: LiveEngineDeps) {}
 
-  private async fetchPage(
+  private async fetchSearch(
     transport: WreqTransport,
-    url: string,
+    request: TransportRequest,
     websiteUrl: string,
     anysolverKey: string | null,
     correlationId: string,
     solveAttempts: { count: number },
     proxy: ProxyConfig | null
   ): Promise<string> {
-    let res = await transport.request({ url });
+    let res = await transport.request(request);
     if (res.status === 200) return res.body;
 
     // Un 403 DataDome se traite d'abord par une AUTRE empreinte TLS : la
@@ -355,13 +445,19 @@ export class LiveEngine implements SearchEngine {
         correlationId,
       });
       logger.info({ to: `${next.browser}/${next.os}`, attempt: i + 1 }, "403 LBC — rotation d'empreinte");
-      res = await transport.request({ url });
+      res = await transport.request(request);
       if (res.status === 200) return res.body;
+    }
+
+    if (res.status === 429 || res.status === 503) {
+      const err = new Error(`API Leboncoin temporairement indisponible (HTTP ${res.status})`);
+      (err as Error & { code?: string }).code = "lbc_upstream_unavailable";
+      throw err;
     }
 
     const challenge = classifyDataDome({ status: res.status, url: websiteUrl, body: res.body });
     if (!challenge) {
-      throw new Error(`HTTP ${res.status} inattendu sur ${url}`);
+      throw new Error(`HTTP ${res.status} inattendu sur ${request.url}`);
     }
     this.deps.bus.publish("challenge.detected", {
       kind: challenge.kind, reason: challenge.reason, correlationId,
@@ -414,7 +510,7 @@ export class LiveEngine implements SearchEngine {
     this.deps.bus.publish("challenge.solved", { elapsedMs: solved.elapsedMs, correlationId });
 
     // rejeu exact de la requête avec le cookie
-    const retry = await transport.request({ url });
+    const retry = await transport.request(request);
     if (retry.status === 200) return retry.body;
     const err = new Error(`Rejeu après challenge : HTTP ${retry.status}`);
     (err as Error & { code?: string }).code = "datadome_replay_failed";
@@ -487,25 +583,41 @@ export class LiveEngine implements SearchEngine {
 
     const maxItems = Math.min(spec.maxItems ?? 200, 1000);
     const solveAttempts = { count: 0 };
+    const experiment = Buffer.from(JSON.stringify({ version: 1, rollout_visitor_id: randomUUID() })).toString("base64");
     const collected: Listing[] = [];
     const seen = new Set<string>();
     let pages = 0;
-    let oldestSeen = Number.POSITIVE_INFINITY;
 
-    // `o` = numéro de page : on avance page par page jusqu'à maxPages du
-    // serveur (plafond ~100), maxItems ou fin chronologique. Une page sans
-    // aucune nouvelle annonce (flux qui bouge, param ignoré) arrête la boucle.
+    // L'API attend un offset 0-based par blocs de 35. On avance jusqu'à
+    // maxPages, maxItems ou la fin chronologique.
     let serverMaxPages = 1;
     for (let page = 1; page <= serverMaxPages; page++) {
       // L'espacement entre pages n'est plus décidé ici : le cadenceur global
       // (`pacer.ts`) sérialise et espace TOUTES les requêtes leboncoin.fr,
       // veilles confondues — sinon 4 veilles paginant en parallèle refont
       // exactement la rafale que DataDome détecte.
-      const url = buildSearchUrl(spec, page);
-      const html = await this.fetchPage(
-        transport, url, "https://www.leboncoin.fr/", anysolverKey, correlationId, solveAttempts, proxy
+      const websiteUrl = buildSearchUrl(spec, page);
+      const body = await this.fetchSearch(
+        transport,
+        {
+          url: FINDER_URL,
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            api_key: FINDER_API_KEY,
+            Origin: "https://www.leboncoin.fr",
+            Referer: websiteUrl,
+            "x-lbc-experiment": experiment,
+          },
+          body: JSON.stringify(buildSearchPayload(spec, page)),
+        },
+        websiteUrl,
+        anysolverKey,
+        correlationId,
+        solveAttempts,
+        proxy
       );
-      const result = parseNextData(html);
+      const result = parseSearchResponse(body);
       pages++;
       serverMaxPages = Math.min(result.maxPages, 100);
 
@@ -529,7 +641,6 @@ export class LiveEngine implements SearchEngine {
           if (Date.now() - ts > MAX_AGE_DAYS * 86_400_000) {
             continue;
           }
-          oldestSeen = Math.min(oldestSeen, ts);
           newestOnPage = Math.max(newestOnPage, ts);
         }
         newOnPage++;

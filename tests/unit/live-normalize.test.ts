@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { normalizeAd, parseNextData, buildSearchUrl, dateFromParis } from "../../apps/server/src/adapters/leboncoin/live.js";
+import { normalizeAd, parseSearchResponse, buildSearchPayload, buildSearchUrl, dateFromParis } from "../../apps/server/src/adapters/leboncoin/live.js";
 import { classifyDataDome } from "../../apps/server/src/adapters/leboncoin/datadome.js";
 
-// Forme réelle observée sur __NEXT_DATA__ de www.leboncoin.fr/recherche (cat. 10)
+// Forme réelle observée dans la réponse finder/search (cat. 10)
 const realAd = {
   list_id: 3227792905,
   first_publication_date: "2026-07-05 10:39:51",
@@ -74,19 +74,45 @@ describe("normalizeAd — payload réel Leboncoin", () => {
   });
 });
 
-describe("parseNextData", () => {
-  it("extrait searchData (ads, total, max_pages)", () => {
-    const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
-      props: { pageProps: { searchData: { ads: [realAd], total: 143, max_pages: 5 } } },
-    })}</script></html>`;
-    const r = parseNextData(html);
+describe("finder/search", () => {
+  it("extrait ads, total et max_pages de la réponse API", () => {
+    const r = parseSearchResponse(JSON.stringify({ ads: [realAd], total: 143, max_pages: 5 }));
     expect(r.ads).toHaveLength(1);
     expect(r.total).toBe(143);
     expect(r.maxPages).toBe(5);
   });
 
-  it("page sans __NEXT_DATA → erreur explicite (jamais vide silencieux)", () => {
-    expect(() => parseNextData("<html>403</html>")).toThrow(/__NEXT_DATA__/);
+  it("réponse sans ads → erreur de schéma explicite (jamais vide silencieux)", () => {
+    expect(() => parseSearchResponse(JSON.stringify({ total: 0 }))).toThrow(/sans tableau ads/);
+  });
+
+  it("construit le payload API actuel avec pagination et filtres", () => {
+    const payload = buildSearchPayload({
+      query: "rtx 3090",
+      categoryIds: ["15"],
+      priceCents: { min: 30_000, max: 120_000 },
+      ownerTypes: ["private"],
+      locations: { departments: ["44", "75"] },
+      shippable: true,
+      urgent: true,
+      attributes: { brand: ["apple", "samsung"], square: { min: 20, max: 80 } },
+      maxItems: 200,
+    }, 3);
+    expect(payload.sort_by).toBe("time");
+    expect(payload.offset).toBe(70);
+    expect(payload.limit).toBe(35);
+    expect(payload.owner_type).toBe("private");
+    expect(payload.filters.category).toEqual({ id: "15" });
+    expect(payload.filters.ranges?.price).toEqual({ min: 300, max: 1200 });
+    expect(payload.filters.ranges?.square).toEqual({ min: 20, max: 80 });
+    expect(payload.filters.enums).toMatchObject({ ad_type: ["offer"], urgent: ["1"], brand: ["apple", "samsung"] });
+    expect(payload.filters.location).toEqual({
+      shippable: true,
+      locations: [
+        { locationType: "department", department_id: "44" },
+        { locationType: "department", department_id: "75" },
+      ],
+    });
   });
 });
 
@@ -96,8 +122,8 @@ describe("buildSearchUrl", () => {
     expect(url.searchParams.get("text")).toBe("vélo route");
     expect(url.searchParams.get("category")).toBe("4");
     expect(url.searchParams.get("price")).toBe("300-1200");
-    // tri chronologique vérifié live le 22/08/2026 : sort=date + order=desc
-    expect(url.searchParams.get("sort")).toBe("date");
+    // contrat actuel : `date` fait répondre 503, `time` est le tri chronologique
+    expect(url.searchParams.get("sort")).toBe("time");
     expect(url.searchParams.get("order")).toBe("desc");
     // `page` est le numéro de page (vérifié live, fenêtres disjointes) — pas `o`
     expect(url.searchParams.get("page")).toBe("2");
