@@ -1,0 +1,18 @@
+[Unit]
+Description=Leboncoin Console
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/nrk/lbc/deploy
+Environment=DOCKER_CONTEXT=default
+ExecStart=/usr/bin/docker compose --env-file /home/nrk/lbc/deploy/.env up -d
+ExecReload=/usr/bin/docker compose --env-file /home/nrk/lbc/deploy/.env up -d
+ExecStop=/usr/bin/docker compose --env-file /home/nrk/lbc/deploy/.env stop
+RemainAfterExit=yes
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

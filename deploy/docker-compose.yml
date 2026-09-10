@@ -1,7 +1,3 @@
-# Console Leboncoin derrière Caddy (mot de passe HTTP Basic).
-# Caddy est le seul point d'entrée : rien n'atteint le serveur sans le mot de
-# passe. Accès web public au choix — `tailscale funnel 8080` (URL .ts.net
-# stable, TLS Let's Encrypt) ou le profil `public` ci-dessous (cloudflared).
 services:
   app:
     build:
@@ -18,41 +14,47 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-gemini-3.7-flash-high}
     volumes:
-      - lbc-data:/app/data
+      # Un dossier hote reste lisible et sauvegardable quel que soit le daemon Docker.
+      - ${LBC_DATA_DIR:-../data}:/app/data
     expose:
       - "8787"
+    mem_limit: 2g
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8787/api/v1/status').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
 
   proxy:
     image: caddy:2-alpine
     container_name: lbc-proxy
     restart: unless-stopped
     depends_on:
-      - app
-    environment:
-      LBC_USER: ${LBC_USER:?definir LBC_USER dans deploy/.env}
-      LBC_HASH: ${LBC_HASH:?definir LBC_HASH dans deploy/.env}
+      app:
+        condition: service_healthy
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
     ports:
-      # Tailnet + LAN : accessible depuis n'importe quelle machine du reseau,
-      # toujours derriere le mot de passe Caddy.
-      - "8080:8080"
-
-  # Tunnel public ephemere (URL *.trycloudflare.com imprimee dans les logs).
-  # `docker compose --profile public up -d`. A remplacer par Tailscale Funnel
-  # une fois celui-ci active sur le tailnet : URL stable en .ts.net.
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    container_name: lbc-tunnel
-    restart: unless-stopped
-    depends_on:
-      - proxy
-    command: tunnel --no-autoupdate --url http://proxy:8080
-    profiles: ["public"]
-
-volumes:
-  lbc-data:
-  caddy-data:
-  caddy-config:
+      # Sans mot de passe, donc publie uniquement sur l'interface choisie.
+      # En production LBC_BIND_IP est l'adresse Tailscale de la machine.
+      - "${LBC_BIND_IP:-127.0.0.1}:${LBC_PORT:-8899}:8080"
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/api/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
