@@ -17,7 +17,7 @@ describe("backoff partagé Leboncoin", () => {
 
   it("retente DataDome après cinq minutes et refroidit les changements de schéma", () => {
     expect(sharedFailureBackoffMs("datadome_rotate_ip", 1)).toBe(5 * 60_000);
-    expect(sharedFailureBackoffMs("datadome_rotate_ip", 2)).toBe(10 * 60_000);
+    expect(sharedFailureBackoffMs("datadome_rotate_ip", 20)).toBe(5 * 60_000);
     expect(sharedFailureBackoffMs("lbc_schema_changed", 1)).toBe(60 * 60_000);
   });
 });
@@ -25,10 +25,10 @@ describe("backoff partagé Leboncoin", () => {
 describe("cadencement global des veilles", () => {
   it("utilise un créneau de cinq minutes par défaut", () => {
     expect(DEFAULT_WATCH_START_GAP_MS).toBe(5 * 60_000);
-    expect(DEFAULT_WATCH_START_JITTER_MS).toBe(2 * 60_000);
+    expect(DEFAULT_WATCH_START_JITTER_MS).toBe(0);
     expect(WATCH_START_GAP_MS).toBeGreaterThanOrEqual(60_000);
     expect(nextWatchDelayMs(() => 0)).toBe(WATCH_START_GAP_MS);
-    expect(nextWatchDelayMs(() => 0.999)).toBeGreaterThan(WATCH_START_GAP_MS);
+    expect(nextWatchDelayMs(() => 0.999)).toBe(WATCH_START_GAP_MS);
   });
 
   it("fait tourner équitablement les veilles arrivées à échéance", () => {

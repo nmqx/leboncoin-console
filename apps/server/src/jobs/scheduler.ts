@@ -18,8 +18,8 @@ const WATCH_TIMEOUT_MS = 180_000;
 const MESSAGING_TIMEOUT_MS = 120_000;
 /** Une seule veille démarre par créneau afin de ne jamais former de rafale. */
 export const DEFAULT_WATCH_START_GAP_MS = 300_000;
-/** Jitter ajouté au créneau pour éviter une périodicité robotique parfaite. */
-export const DEFAULT_WATCH_START_JITTER_MS = 120_000;
+/** Aucun jitter : l'intervalle entre deux départs reste exactement de cinq minutes. */
+export const DEFAULT_WATCH_START_JITTER_MS = 0;
 const configuredWatchGap = Number(process.env["LBC_WATCH_START_GAP_MS"] ?? DEFAULT_WATCH_START_GAP_MS);
 export const WATCH_START_GAP_MS = Number.isFinite(configuredWatchGap)
   ? Math.max(60_000, configuredWatchGap)
@@ -40,6 +40,7 @@ const SHARED_FAILURE_CODES = new Set([
 ]);
 
 export function sharedFailureBackoffMs(code: string, streak: number): number {
+  if (code.startsWith("datadome")) return 5 * 60_000;
   const baseMinutes = code === "lbc_schema_changed"
     ? 60
     : code === "lbc_upstream_unavailable" ? 15 : 5;
@@ -199,7 +200,7 @@ export function startScheduler(
           } else if (outcome.code && SHARED_FAILURE_CODES.has(outcome.code)) {
             sharedFailureStreak++;
             const delayMs = sharedFailureBackoffMs(outcome.code, sharedFailureStreak);
-            const retryAt = Date.now() + delayMs + jitterMs();
+            const retryAt = Date.now() + delayMs + (outcome.code.startsWith("datadome") ? 0 : jitterMs());
             for (const watch of watches) nextDue.set(watch.id, retryAt);
             if (sharedFailureStreak >= 3) {
               const lastAlert = incidentAlertedAt.get(outcome.code) ?? 0;
