@@ -16,18 +16,6 @@ const TICK_MS = 15_000;
 const WATCH_TIMEOUT_MS = 180_000;
 /** Plafond dur du passage messagerie : un sync bloqué ne doit pas geler le planificateur. */
 const MESSAGING_TIMEOUT_MS = 120_000;
-/** Une seule veille démarre par créneau afin de ne jamais former de rafale. */
-export const DEFAULT_WATCH_START_GAP_MS = 300_000;
-/** Aucun jitter : l'intervalle entre deux départs reste exactement de cinq minutes. */
-export const DEFAULT_WATCH_START_JITTER_MS = 0;
-const configuredWatchGap = Number(process.env["LBC_WATCH_START_GAP_MS"] ?? DEFAULT_WATCH_START_GAP_MS);
-export const WATCH_START_GAP_MS = Number.isFinite(configuredWatchGap)
-  ? Math.max(60_000, configuredWatchGap)
-  : DEFAULT_WATCH_START_GAP_MS;
-const configuredWatchJitter = Number(process.env["LBC_WATCH_START_JITTER_MS"] ?? DEFAULT_WATCH_START_JITTER_MS);
-export const WATCH_START_JITTER_MS = Number.isFinite(configuredWatchJitter)
-  ? Math.max(0, configuredWatchJitter)
-  : DEFAULT_WATCH_START_JITTER_MS;
 /** Une même panne externe ne doit produire qu'une alerte toutes les six heures. */
 const INCIDENT_ALERT_INTERVAL_MS = 6 * 60 * 60_000;
 const SHARED_FAILURE_CODES = new Set([
@@ -40,29 +28,8 @@ const SHARED_FAILURE_CODES = new Set([
 ]);
 
 export function sharedFailureBackoffMs(code: string, streak: number): number {
-  if (code.startsWith("datadome")) return 5 * 60_000;
-  const baseMinutes = code === "lbc_schema_changed"
-    ? 60
-    : code === "lbc_upstream_unavailable" ? 15 : 5;
+  const baseMinutes = code === "lbc_schema_changed" ? 60 : code.startsWith("datadome") ? 15 : 5;
   return Math.min(60, baseMinutes * 2 ** Math.max(0, streak - 1)) * 60_000;
-}
-
-export function nextWatchDelayMs(random = Math.random): number {
-  return WATCH_START_GAP_MS + Math.floor(random() * WATCH_START_JITTER_MS);
-}
-
-/** Sélection équitable de la prochaine veille arrivée à échéance. */
-export function nextDueWatchIndex(
-  watches: ReadonlyArray<{ id: number }>,
-  nextDue: ReadonlyMap<number, number>,
-  cursor: number,
-  now: number
-): number | null {
-  for (let step = 0; step < watches.length; step++) {
-    const index = (cursor + step) % watches.length;
-    if ((nextDue.get(watches[index]!.id) ?? 0) <= now) return index;
-  }
-  return null;
 }
 
 /**
@@ -106,8 +73,6 @@ export function startScheduler(
   const nextDue = new Map<number, number>();
   const incidentAlertedAt = new Map<string, number>();
   let sharedFailureStreak = 0;
-  let nextWatchStartAt = Date.now();
-  let watchCursor = 0;
   let messagingDue = Date.now(); // premier passage immédiat au démarrage
 
   const jitterMs = () => Math.floor(Math.random() * cfg.scheduler.jitterMaxSeconds * 1000);
@@ -121,7 +86,7 @@ export function startScheduler(
     watchId: number,
     name: string,
     spec: Parameters<SearchEngine["run"]>[1]
-  ): Promise<{ ok: boolean; code?: string; message?: string }> => {
+  ): Promise<{ ok: boolean; code?: string }> => {
     const jobId = `job-${Date.now()}-${watchId}-${Math.floor(Math.random() * 1e4)}`;
     repos.jobs.create(jobId, watchId, spec, jobId);
     bus.publish("watch.started", { watchId, name, jobId, correlationId: jobId });
@@ -159,20 +124,16 @@ export function startScheduler(
         message: e.message,
         correlationId: jobId,
       });
-      // Une panne LBC partagée est souvent transitoire. Elle n'alerte qu'après
-      // trois cycles échoués, dans tick(), afin d'éviter le bruit Discord.
-      if (!SHARED_FAILURE_CODES.has(code)) {
-        const now = Date.now();
-        const lastAlert = incidentAlertedAt.get(code) ?? 0;
-        if (now - lastAlert >= INCIDENT_ALERT_INTERVAL_MS) {
-          repos.webhooks.enqueueForWatch("challenge.failed", watchId, { watchId, name, code, message: e.message });
-          incidentAlertedAt.set(code, now);
-        } else {
-          logger.info({ code, watchId }, "alerte incident identique supprimée");
-        }
+      const now = Date.now();
+      const lastAlert = incidentAlertedAt.get(code) ?? 0;
+      if (now - lastAlert >= INCIDENT_ALERT_INTERVAL_MS) {
+        repos.webhooks.enqueueForWatch("challenge.failed", watchId, { watchId, name, code, message: e.message });
+        incidentAlertedAt.set(code, now);
+      } else {
+        logger.info({ code, watchId }, "alerte incident identique supprimée");
       }
       logger.warn({ err: e.message, watchId }, "veille mise en quarantaine");
-      return { ok: false, code, message: e.message };
+      return { ok: false, code };
     }
   };
 
@@ -185,41 +146,24 @@ export function startScheduler(
       for (const id of [...nextDue.keys()]) {
         if (!alive.has(id)) nextDue.delete(id); // veille supprimée/désactivée
       }
-      // Tourniquet équitable : au plus une veille toutes les cinq minutes.
-      // Avec quatre veilles, chacune repasse environ toutes les vingt minutes.
-      if (watches.length > 0 && Date.now() >= nextWatchStartAt) {
-        const dueIndex = nextDueWatchIndex(watches, nextDue, watchCursor, Date.now());
-        if (dueIndex !== null && !stopped) {
-          const w = watches[dueIndex]!;
-          watchCursor = (dueIndex + 1) % watches.length;
-          nextWatchStartAt = Date.now() + nextWatchDelayMs();
-          const outcome = await runWatch(w.id, w.name, w.spec);
-          nextDue.set(w.id, Date.now() + w.cadenceMinutes * 60_000 + jitterMs());
-          if (outcome.ok) {
-            sharedFailureStreak = 0;
-          } else if (outcome.code && SHARED_FAILURE_CODES.has(outcome.code)) {
-            sharedFailureStreak++;
-            const delayMs = sharedFailureBackoffMs(outcome.code, sharedFailureStreak);
-            const retryAt = Date.now() + delayMs + (outcome.code.startsWith("datadome") ? 0 : jitterMs());
-            for (const watch of watches) nextDue.set(watch.id, retryAt);
-            if (sharedFailureStreak >= 3) {
-              const lastAlert = incidentAlertedAt.get(outcome.code) ?? 0;
-              if (Date.now() - lastAlert >= INCIDENT_ALERT_INTERVAL_MS) {
-                repos.webhooks.enqueueForWatch("challenge.failed", w.id, {
-                  watchId: w.id,
-                  name: w.name,
-                  code: outcome.code,
-                  message: outcome.message ?? "Panne Leboncoin persistante",
-                  streak: sharedFailureStreak,
-                });
-                incidentAlertedAt.set(outcome.code, Date.now());
-              }
-            }
-            logger.warn(
-              { code: outcome.code, streak: sharedFailureStreak, retryAt: new Date(retryAt).toISOString() },
-              "panne LBC partagée — toutes les veilles passent en backoff"
-            );
-          }
+      for (const w of watches) {
+        if (stopped) break;
+        const due = nextDue.get(w.id) ?? 0;
+        if (due > Date.now()) continue;
+        const outcome = await runWatch(w.id, w.name, w.spec);
+        nextDue.set(w.id, Date.now() + w.cadenceMinutes * 60_000 + jitterMs());
+        if (outcome.ok) {
+          sharedFailureStreak = 0;
+        } else if (outcome.code && SHARED_FAILURE_CODES.has(outcome.code)) {
+          sharedFailureStreak++;
+          const delayMs = sharedFailureBackoffMs(outcome.code, sharedFailureStreak);
+          const retryAt = Date.now() + delayMs + jitterMs();
+          for (const watch of watches) nextDue.set(watch.id, retryAt);
+          logger.warn(
+            { code: outcome.code, streak: sharedFailureStreak, retryAt: new Date(retryAt).toISOString() },
+            "panne LBC partagée — toutes les veilles passent en backoff"
+          );
+          break;
         }
       }
       // messagerie : sync inbox + réponses automatiques — sa propre horloge,
@@ -254,15 +198,14 @@ export function startScheduler(
       nextDue.clear();
     },
     nextRunAt: () => {
-      const watchDue = Math.min(...nextDue.values());
-      const soonestWatch = Number.isFinite(watchDue) ? Math.max(watchDue, nextWatchStartAt) : Number.POSITIVE_INFINITY;
-      const soonest = Math.min(soonestWatch, messagingDue);
+      const soonest = Math.min(
+        ...[...nextDue.values(), messagingDue]
+      );
       return Number.isFinite(soonest) ? new Date(soonest) : null;
     },
     runNow: async () => {
       if (running) return;
       for (const id of nextDue.keys()) nextDue.set(id, 0);
-      nextWatchStartAt = 0;
       messagingDue = 0;
       if (timer) clearTimeout(timer);
       await tick();
