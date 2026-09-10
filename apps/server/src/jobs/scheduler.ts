@@ -40,7 +40,7 @@ const SHARED_FAILURE_CODES = new Set([
 ]);
 
 export function sharedFailureBackoffMs(code: string, streak: number): number {
-  const baseMinutes = code === "lbc_schema_changed" || code.startsWith("datadome")
+  const baseMinutes = code === "lbc_schema_changed"
     ? 60
     : code === "lbc_upstream_unavailable" ? 15 : 5;
   return Math.min(60, baseMinutes * 2 ** Math.max(0, streak - 1)) * 60_000;

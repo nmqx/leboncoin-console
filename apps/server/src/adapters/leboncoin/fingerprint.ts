@@ -35,36 +35,26 @@ export const FINGERPRINT_POOL: readonly Fingerprint[] = [
   { browser: "safari_26.4", os: "macos" },
 ];
 
-/**
- * Dernières empreintes servies, du plus récent au plus ancien. Une nouvelle
- * requête n'en reprend aucune : deux jobs consécutifs (ou un rejeu après 403)
- * ne repartent jamais avec la même signature.
- */
-const recent: string[] = [];
-const RECENT_MEMORY = 3;
+/** Un profil différent par créneau de cinq minutes, même après redémarrage. */
+export const FINGERPRINT_SLOT_MS = 5 * 60_000;
 
 function keyOf(fp: Fingerprint): string {
   return `${fp.browser}/${fp.os}`;
 }
 
 /**
- * Tire une empreinte au hasard hors des `RECENT_MEMORY` dernières et hors de
- * `exclude` (rejeu après blocage : on veut explicitement une autre signature).
+ * La rotation dépend du temps plutôt que de la mémoire du processus. Un
+ * redémarrage ne remet donc pas systématiquement le pool sur Chrome 149.
+ * `exclude` permet à un rejeu explicite de prendre le profil suivant.
  */
-export function pickFingerprint(exclude: readonly Fingerprint[] = []): Fingerprint {
-  const banned = new Set([...recent, ...exclude.map(keyOf)]);
-  let pool = FINGERPRINT_POOL.filter((fp) => !banned.has(keyOf(fp)));
-  // Pool épuisé (plus d'exclusions que de profils) : on relâche la mémoire
-  // courte mais jamais les exclusions explicites du rejeu.
-  if (pool.length === 0) {
-    const hard = new Set(exclude.map(keyOf));
-    pool = FINGERPRINT_POOL.filter((fp) => !hard.has(keyOf(fp)));
+export function pickFingerprint(exclude: readonly Fingerprint[] = [], now = Date.now()): Fingerprint {
+  const banned = new Set(exclude.map(keyOf));
+  const start = Math.floor(now / FINGERPRINT_SLOT_MS) % FINGERPRINT_POOL.length;
+  for (let offset = 0; offset < FINGERPRINT_POOL.length; offset++) {
+    const fp = FINGERPRINT_POOL[(start + offset) % FINGERPRINT_POOL.length]!;
+    if (!banned.has(keyOf(fp))) return fp;
   }
-  if (pool.length === 0) pool = [...FINGERPRINT_POOL];
-  const fp = pool[Math.floor(Math.random() * pool.length)]!;
-  recent.unshift(keyOf(fp));
-  recent.length = Math.min(recent.length, RECENT_MEMORY);
-  return fp;
+  return FINGERPRINT_POOL[start]!;
 }
 
 /**

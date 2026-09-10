@@ -15,8 +15,9 @@ describe("backoff partagé Leboncoin", () => {
     expect(sharedFailureBackoffMs("lbc_upstream_unavailable", 20)).toBe(60 * 60_000);
   });
 
-  it("laisse davantage refroidir DataDome et les changements de schéma", () => {
-    expect(sharedFailureBackoffMs("datadome_rotate_ip", 1)).toBe(60 * 60_000);
+  it("retente DataDome après cinq minutes et refroidit les changements de schéma", () => {
+    expect(sharedFailureBackoffMs("datadome_rotate_ip", 1)).toBe(5 * 60_000);
+    expect(sharedFailureBackoffMs("datadome_rotate_ip", 2)).toBe(10 * 60_000);
     expect(sharedFailureBackoffMs("lbc_schema_changed", 1)).toBe(60 * 60_000);
   });
 });
