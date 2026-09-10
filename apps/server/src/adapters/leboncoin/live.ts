@@ -438,22 +438,13 @@ export class LiveEngine implements SearchEngine {
       kind: challenge.kind, reason: challenge.reason, correlationId,
     });
 
-    // Ne jamais insister immédiatement : quatre rotations puis un proxy
-    // transformaient un blocage ponctuel en huit requêtes sur 90 secondes.
-    // On prépare une nouvelle identité pour le prochain créneau, après le
-    // backoff partagé du scheduler.
-    const previous = transport.profile;
-    const next = transport.rotate([previous]);
-    this.searchFingerprint = next;
-    this.rolloutVisitorId = randomUUID();
-    this.deps.bus.publish("fingerprint.rotated", {
-      from: `${previous.browser}/${previous.os}`,
-      to: `${next.browser}/${next.os}`,
-      attempt: 1,
-      deferred: true,
-      correlationId,
-    });
-    logger.info({ to: `${next.browser}/${next.os}` }, "DataDome — nouvelle identité au prochain créneau");
+    // Ne jamais insister ni changer d'identité : un même visiteur qui alterne
+    // Chrome, Firefox et Safari est un signal anti-bot. Le scheduler impose
+    // désormais une heure de refroidissement après ce challenge.
+    logger.info(
+      { profile: `${transport.profile.browser}/${transport.profile.os}` },
+      "DataDome — empreinte conservée, refroidissement différé"
+    );
 
     if (challenge.kind === "abandon") {
       const err = new Error(`DataDome ${challenge.reason} — reprise différée`);

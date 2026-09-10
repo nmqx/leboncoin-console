@@ -18,10 +18,16 @@ const WATCH_TIMEOUT_MS = 180_000;
 const MESSAGING_TIMEOUT_MS = 120_000;
 /** Une seule veille démarre par créneau afin de ne jamais former de rafale. */
 export const DEFAULT_WATCH_START_GAP_MS = 300_000;
+/** Jitter ajouté au créneau pour éviter une périodicité robotique parfaite. */
+export const DEFAULT_WATCH_START_JITTER_MS = 120_000;
 const configuredWatchGap = Number(process.env["LBC_WATCH_START_GAP_MS"] ?? DEFAULT_WATCH_START_GAP_MS);
 export const WATCH_START_GAP_MS = Number.isFinite(configuredWatchGap)
   ? Math.max(60_000, configuredWatchGap)
   : DEFAULT_WATCH_START_GAP_MS;
+const configuredWatchJitter = Number(process.env["LBC_WATCH_START_JITTER_MS"] ?? DEFAULT_WATCH_START_JITTER_MS);
+export const WATCH_START_JITTER_MS = Number.isFinite(configuredWatchJitter)
+  ? Math.max(0, configuredWatchJitter)
+  : DEFAULT_WATCH_START_JITTER_MS;
 /** Une même panne externe ne doit produire qu'une alerte toutes les six heures. */
 const INCIDENT_ALERT_INTERVAL_MS = 6 * 60 * 60_000;
 const SHARED_FAILURE_CODES = new Set([
@@ -34,8 +40,14 @@ const SHARED_FAILURE_CODES = new Set([
 ]);
 
 export function sharedFailureBackoffMs(code: string, streak: number): number {
-  const baseMinutes = code === "lbc_schema_changed" ? 60 : code.startsWith("datadome") ? 15 : 5;
+  const baseMinutes = code === "lbc_schema_changed" || code.startsWith("datadome")
+    ? 60
+    : code === "lbc_upstream_unavailable" ? 15 : 5;
   return Math.min(60, baseMinutes * 2 ** Math.max(0, streak - 1)) * 60_000;
+}
+
+export function nextWatchDelayMs(random = Math.random): number {
+  return WATCH_START_GAP_MS + Math.floor(random() * WATCH_START_JITTER_MS);
 }
 
 /** Sélection équitable de la prochaine veille arrivée à échéance. */
@@ -179,7 +191,7 @@ export function startScheduler(
         if (dueIndex !== null && !stopped) {
           const w = watches[dueIndex]!;
           watchCursor = (dueIndex + 1) % watches.length;
-          nextWatchStartAt = Date.now() + WATCH_START_GAP_MS;
+          nextWatchStartAt = Date.now() + nextWatchDelayMs();
           const outcome = await runWatch(w.id, w.name, w.spec);
           nextDue.set(w.id, Date.now() + w.cadenceMinutes * 60_000 + jitterMs());
           if (outcome.ok) {
