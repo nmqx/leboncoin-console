@@ -1,7 +1,0 @@
-[Unit]
-Description=Leboncoin Console health watchdog
-After=lbc-console.service network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/home/nrk/lbc/deploy/lbc-watchdog.sh

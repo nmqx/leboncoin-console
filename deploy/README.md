@@ -23,15 +23,12 @@ sauvegardables avec les outils ordinaires de l'hôte.
 
 ## Démarrage automatique
 
-Les unités de `deploy/systemd/` lancent la stack avec Docker Engine au
-démarrage et vérifient l'URL locale toutes les deux minutes. Après trois échecs
-consécutifs, le watchdog recrée uniquement les deux conteneurs Leboncoin.
+Les tâches cron lancent la stack avec Docker Engine au démarrage et vérifient
+l'URL locale toutes les deux minutes. Après trois échecs consécutifs, le
+watchdog recrée uniquement les deux conteneurs Leboncoin.
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp deploy/systemd/lbc-console.service deploy/systemd/lbc-watchdog.service deploy/systemd/lbc-watchdog.timer ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now lbc-console.service lbc-watchdog.timer
+deploy/install-cron.sh
 ```
 
 ## Connexion Leboncoin depuis une machine sans écran
