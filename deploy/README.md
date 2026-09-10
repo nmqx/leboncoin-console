@@ -24,7 +24,7 @@ sauvegardables avec les outils ordinaires de l'hôte.
 ## Démarrage automatique
 
 Les tâches cron lancent la stack avec Docker Engine au démarrage et vérifient
-l'URL locale toutes les deux minutes. Après trois échecs consécutifs, le
+l'URL locale toutes les cinq minutes. Après trois échecs consécutifs, le
 watchdog recrée uniquement les deux conteneurs Leboncoin.
 
 ```bash

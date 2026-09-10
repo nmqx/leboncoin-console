@@ -14,7 +14,7 @@ trap 'rm -f "$tmp"' EXIT
 cat >> "$tmp" <<'EOF'
 # BEGIN LBC_CONSOLE
 @reboot /home/nrk/lbc/deploy/lbc-start.sh >> /home/nrk/lbc-start.log 2>&1
-*/2 * * * * /home/nrk/lbc/deploy/lbc-watchdog.sh >> /home/nrk/lbc-watchdog.log 2>&1
+*/5 * * * * /home/nrk/lbc/deploy/lbc-watchdog.sh >> /home/nrk/lbc-watchdog.log 2>&1
 # END LBC_CONSOLE
 EOF
 

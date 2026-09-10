@@ -93,10 +93,7 @@ async function main(): Promise<void> {
           repos,
           bus,
           getProxy: () => getProxyFor("search"),
-          // repli DataDome : proxy stocké hors politique de routage
-          getBackupProxy: () => storedProxy(),
-          // Repli payant uniquement : le chemin nominal est la rotation
-          // d'empreinte TLS, en direct, sans compte ni proxy.
+          // Repli payant explicitement opt-in ; désactivé par défaut.
           getAnysolverKey: () => decryptSecret("anysolver_key"),
           // filtre sémantique llmFilter : config LLM du coffre si présente
           getLlm: async () => {

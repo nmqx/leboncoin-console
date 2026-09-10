@@ -6,7 +6,6 @@ import type { ProxyConfig } from "../../domain/proxy.js";
 import { relevanceScore } from "../../domain/scoring.js";
 import { isJunkListing } from "../../domain/junk.js";
 import { WreqTransport } from "./wreq-transport.js";
-import type { Fingerprint } from "./fingerprint.js";
 import type { TransportRequest } from "./transport.js";
 import { classifyDataDome } from "./datadome.js";
 import type { EngineRunResult, SearchEngine } from "./engine.js";
@@ -396,26 +395,20 @@ export interface LiveEngineDeps {
   repos: Repos;
   bus: Bus;
   getProxy(): Promise<ProxyConfig | null>;
-  /** Proxy stocké hors politique : repli automatique sur DataDome en direct. */
-  getBackupProxy?(): Promise<ProxyConfig | null>;
-  /** Repli payant, jamais le chemin nominal : la rotation d'empreinte suffit. */
+  /** Repli payant, actif uniquement si LBC_ALLOW_PAID_SOLVER=1. */
   getAnysolverKey(): Promise<string | null>;
   /** Config LLM pour le filtre sémantique (llmFilter). Null = non configuré. */
   getLlm?(): Promise<{ baseUrl: string; apiKey: string; model: string } | null>;
 }
 
 const MAX_SOLVE_ATTEMPTS_PER_JOB = 2;
-/**
- * Rotations d'empreinte TLS tentées sur un 403 avant d'envisager un solveur.
- * Mesuré le 04/09/2026 en direct : 9 empreintes modernes distinctes → 9/9 en
- * 200, `chrome_131` figé → 4/4 en 403. Un 403 est donc d'abord une signature
- * brûlée, pas un captcha à résoudre : on change de signature avant de payer.
- */
-const MAX_FINGERPRINT_ROTATIONS = 3;
 const MAX_AGE_DAYS = 14;
 
 export class LiveEngine implements SearchEngine {
   readonly kind = "live" as const;
+  /** Identité stable tant que Leboncoin l'accepte. */
+  private searchFingerprint = new WreqTransport().profile;
+  private rolloutVisitorId = randomUUID();
 
   constructor(private readonly deps: LiveEngineDeps) {}
 
@@ -431,24 +424,6 @@ export class LiveEngine implements SearchEngine {
     let res = await transport.request(request);
     if (res.status === 200) return res.body;
 
-    // Un 403 DataDome se traite d'abord par une AUTRE empreinte TLS : la
-    // signature courante est brûlée, pas l'IP, et surtout pas le compte.
-    // Le cadenceur global espace déjà chaque tentative — pas de sleep ici.
-    const burned: Fingerprint[] = [];
-    for (let i = 0; i < MAX_FINGERPRINT_ROTATIONS && res.status === 403; i++) {
-      burned.push(transport.profile);
-      const next = transport.rotate(burned);
-      this.deps.bus.publish("fingerprint.rotated", {
-        from: `${burned[burned.length - 1]!.browser}/${burned[burned.length - 1]!.os}`,
-        to: `${next.browser}/${next.os}`,
-        attempt: i + 1,
-        correlationId,
-      });
-      logger.info({ to: `${next.browser}/${next.os}`, attempt: i + 1 }, "403 LBC — rotation d'empreinte");
-      res = await transport.request(request);
-      if (res.status === 200) return res.body;
-    }
-
     if (res.status === 429 || res.status === 503) {
       const err = new Error(`API Leboncoin temporairement indisponible (HTTP ${res.status})`);
       (err as Error & { code?: string }).code = "lbc_upstream_unavailable";
@@ -463,19 +438,32 @@ export class LiveEngine implements SearchEngine {
       kind: challenge.kind, reason: challenge.reason, correlationId,
     });
 
+    // Ne jamais insister immédiatement : quatre rotations puis un proxy
+    // transformaient un blocage ponctuel en huit requêtes sur 90 secondes.
+    // On prépare une nouvelle identité pour le prochain créneau, après le
+    // backoff partagé du scheduler.
+    const previous = transport.profile;
+    const next = transport.rotate([previous]);
+    this.searchFingerprint = next;
+    this.rolloutVisitorId = randomUUID();
+    this.deps.bus.publish("fingerprint.rotated", {
+      from: `${previous.browser}/${previous.os}`,
+      to: `${next.browser}/${next.os}`,
+      attempt: 1,
+      deferred: true,
+      correlationId,
+    });
+    logger.info({ to: `${next.browser}/${next.os}` }, "DataDome — nouvelle identité au prochain créneau");
+
     if (challenge.kind === "abandon") {
-      // Les reprises transitoires sont déjà couvertes par la rotation
-      // d'empreinte ci-dessus (chacune espacée par le cadenceur) : réessayer
-      // ici avec la MÊME signature ne ferait que confirmer le blocage.
-      const err = new Error(`DataDome ${challenge.reason} (${MAX_FINGERPRINT_ROTATIONS} empreintes essayées)`);
+      const err = new Error(`DataDome ${challenge.reason} — reprise différée`);
       (err as Error & { code?: string }).code = "datadome_rotate_ip";
       throw err;
     }
     if (!anysolverKey) {
-      // Chemin nominal : la veille tourne sans solveur. On n'arrive ici que si
-      // la rotation d'empreinte a échoué ET qu'aucune clé n'est stockée.
+      // Chemin nominal : la veille tourne sans solveur et attend son backoff.
       const err = new Error(
-        `DataDome ${challenge.kind} après ${MAX_FINGERPRINT_ROTATIONS} empreintes — aucune clé AnySolver en repli`
+        `DataDome ${challenge.kind} — aucune clé AnySolver en repli`
       );
       (err as Error & { code?: string }).code = "datadome_no_solver";
       throw err;
@@ -526,38 +514,7 @@ export class LiveEngine implements SearchEngine {
    */
   async run(jobId: string, spec: SearchSpec, correlationId: string, watchId?: number | null): Promise<EngineRunResult> {
     const primary = await this.deps.getProxy();
-    let lastErr: unknown;
-    try {
-      return await this.runOnce(jobId, spec, correlationId, primary, watchId);
-    } catch (err) {
-      lastErr = err;
-      const code = (err as Error & { code?: string }).code ?? "";
-
-      // Dernier repli, seulement si un proxy est stocké hors politique de
-      // routage : la rotation d'empreinte a déjà échoué en direct. Jamais de
-      // boucle — un échec ici part en quarantaine avec son diagnostic.
-      if (
-        primary === null &&
-        code.startsWith("datadome") &&
-        this.deps.getBackupProxy
-      ) {
-        const backup = await this.deps.getBackupProxy().catch(() => null);
-        if (backup) {
-          this.deps.bus.publish("challenge.failover_proxy", {
-            jobId, code, correlationId, proxy: `${backup.host}:${backup.port}`,
-          });
-          logger.warn({ jobId, code }, "DataDome en direct — repli proxy");
-          try {
-            return await this.runOnce(jobId, spec, correlationId, backup, watchId);
-          } catch (err3) {
-            lastErr = err3;
-            const code3 = (err3 as Error & { code?: string }).code ?? "engine_error";
-            throw Object.assign(new Error(`DataDome : tous les replis épuisés (${code3})`), { code: code3 });
-          }
-        }
-      }
-      throw lastErr;
-    }
+    return this.runOnce(jobId, spec, correlationId, primary, watchId);
   }
 
   private async runOnce(
@@ -572,10 +529,12 @@ export class LiveEngine implements SearchEngine {
     if (!spec.query.trim() || spec.query.trim() === "toutes annonces") {
       throw new Error("Requête vide : le flux générique n'est pas scrapé — précisez un texte de recherche");
     }
-    // Aucun cookie, aucun UA imposé : le transport tire une empreinte moderne
-    // au sort et en dérive son propre User-Agent cohérent (cf. fingerprint.ts).
-    const anysolverKey = await this.deps.getAnysolverKey();
-    const transport = new WreqTransport({ proxy: proxy ?? undefined });
+    // Aucun cookie ni UA imposé. Une identité cohérente est gardée entre les
+    // cycles, puis remplacée au cycle suivant seulement après un challenge.
+    const anysolverKey = process.env["LBC_ALLOW_PAID_SOLVER"] === "1"
+      ? await this.deps.getAnysolverKey()
+      : null;
+    const transport = new WreqTransport({ proxy: proxy ?? undefined, fingerprint: this.searchFingerprint });
     logger.info(
       { jobId, profile: `${transport.profile.browser}/${transport.profile.os}`, proxy: proxy ? `${proxy.host}:${proxy.port}` : "direct" },
       "veille LBC : empreinte tirée"
@@ -583,7 +542,7 @@ export class LiveEngine implements SearchEngine {
 
     const maxItems = Math.min(spec.maxItems ?? 200, 1000);
     const solveAttempts = { count: 0 };
-    const experiment = Buffer.from(JSON.stringify({ version: 1, rollout_visitor_id: randomUUID() })).toString("base64");
+    const experiment = Buffer.from(JSON.stringify({ version: 1, rollout_visitor_id: this.rolloutVisitorId })).toString("base64");
     const collected: Listing[] = [];
     const seen = new Set<string>();
     let pages = 0;
