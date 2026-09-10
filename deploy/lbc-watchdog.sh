@@ -8,13 +8,13 @@ FAIL_FILE=$STATE_DIR/failures
 
 mkdir -p "$STATE_DIR"
 
-if [ -f "$ENV_FILE" ]; then
-  set -a
-  # Le fichier est administré localement et n'est jamais versionné.
-  . "$ENV_FILE"
-  set +a
-fi
+env_value() {
+  [ -f "$ENV_FILE" ] || return 0
+  sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | tr -d '\r'
+}
 
+LBC_BIND_IP=${LBC_BIND_IP:-$(env_value LBC_BIND_IP)}
+LBC_PORT=${LBC_PORT:-$(env_value LBC_PORT)}
 LBC_BIND_IP=${LBC_BIND_IP:-127.0.0.1}
 LBC_PORT=${LBC_PORT:-8899}
 HEALTH_URL="http://$LBC_BIND_IP:$LBC_PORT/api/v1/status"
