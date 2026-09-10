@@ -169,14 +169,14 @@ On te donne une requête (ce que l'opérateur cherche VRAIMENT) et une liste num
 Règles strictes :
 - Une annonce est PERTINENTE seulement si l'objet principal vendu EST EXACTEMENT l'appareil cherché.
 - CARTES GRAPHIQUES (GPU : RTX, GTX, Radeon...) :
-  * L'objet VENDU doit être la carte graphique fonctionnelle complète et en état de marche.
-  * REJETER STRICTEMENT tout matériel défectueux, HS, en panne, pour pièces, sans dissipateur / sans ventirad, ou incomplet.
+  * L'objet VENDU doit être la carte graphique elle-même.
+  * Une carte défectueuse, HS, en panne, pour pièces, sans dissipateur ou incomplète reste PERTINENTE : son prix peut en faire une opportunité de réparation ou de pièces.
   * REJETER STRICTEMENT tout accessoire : waterblock, bloc watercooling, bloc de refroidissement, backplate, ventilateur seul, boîte vide, carton, riser, support vertical, pont SLI, câble.
   * REJETER STRICTEMENT les annonces de recherche / achat (ex: « Cherche RTX 3090 » ou « Recherche GPU »).
   * REJETER STRICTEMENT les modèles ou déclinaisons différentes :
     - Si la requête est « RTX 2080 Ti », une RTX 2080 standard ou une RTX 2080 Super N'EST PAS une 2080 Ti → REJET IMMÉDIAT.
     - Si la requête est « RTX 3080 », une RTX 3070 ou 3090 N'EST PAS une 3080 → REJET IMMÉDIAT.
-- TÉLÉPHONES / CONSOLES / AUTRES : coque, étui, protection écran, verre trempé, film, écran de remplacement, batterie, câble, chargeur, adaptateur, support, housse, sticker, manette seule = REJET IMMÉDIAT.
+- TÉLÉPHONES / CONSOLES / AUTRES : coque, étui, protection écran, verre trempé, film, écran de remplacement, batterie, câble, chargeur, adaptateur, support, housse, sticker, manette seule = REJET IMMÉDIAT. Un jeu comme « Just Dance - Nintendo Switch » n'est pas une console Nintendo Switch.
 - L'appareil d'une GÉNÉRATION DIFFÉRENTE n'est pas l'appareil cherché : « Pixel 8a » ou « Pixel 9 » pour une requête « pixel 8 » est NON pertinent ; seul « Pixel 8 » (éventuellement Pro) l'est.
 - Une annonce ambiguë, accessoire ou hors-sujet est NON pertinente.
 Réponds UNIQUEMENT en JSON: {"keep": [numéros des annonces pertinentes]}`;
@@ -202,8 +202,9 @@ export function parseRelevanceResponse(raw: string, total: number): Set<number> 
     const n = typeof v === "number" ? v : Number(String(v).replace(/[^0-9]/g, ""));
     if (Number.isInteger(n) && n >= 1 && n <= total) keep.add(n);
   }
-  // Si le LLM a explicitement retourné un tableau vide, c'est que rien n'est pertinent !
-  return keep;
+  // Filtre non bloquant : vide ou entièrement hors bornes est traité comme une
+  // réponse douteuse, sinon une erreur du modèle ferait disparaître tout le lot.
+  return keep.size > 0 ? keep : allKept(total);
 }
 
 function allKept(total: number): Set<number> {
