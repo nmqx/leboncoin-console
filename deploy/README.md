@@ -28,9 +28,10 @@ démarrage et vérifient l'URL locale toutes les deux minutes. Après trois éch
 consécutifs, le watchdog recrée uniquement les deux conteneurs Leboncoin.
 
 ```bash
-sudo cp deploy/systemd/lbc-console.service deploy/systemd/lbc-watchdog.service deploy/systemd/lbc-watchdog.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now lbc-console.service lbc-watchdog.timer
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/lbc-console.service deploy/systemd/lbc-watchdog.service deploy/systemd/lbc-watchdog.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now lbc-console.service lbc-watchdog.timer
 ```
 
 ## Connexion Leboncoin depuis une machine sans écran

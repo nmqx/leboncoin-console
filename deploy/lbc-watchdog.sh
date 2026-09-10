@@ -3,7 +3,7 @@ set -eu
 
 DEPLOY_DIR=${LBC_DEPLOY_DIR:-/home/nrk/lbc/deploy}
 ENV_FILE=${LBC_ENV_FILE:-$DEPLOY_DIR/.env}
-STATE_DIR=${LBC_WATCHDOG_STATE_DIR:-/var/lib/lbc-watchdog}
+STATE_DIR=${LBC_WATCHDOG_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/lbc-watchdog}
 FAIL_FILE=$STATE_DIR/failures
 
 mkdir -p "$STATE_DIR"
